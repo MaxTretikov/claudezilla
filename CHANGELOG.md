@@ -1,7 +1,36 @@
 # CLZ002 Changelog
 
 **Project:** Claudezilla
-**Current Version:** 0.6.4
+**Current Version:** 0.6.5
+
+## v0.6.5 (2026-05-10)
+
+**Claude Code compatibility — closes the gap with upstream changes 2.1.129 → 2.1.138.**
+
+Compatibility and polish release. Claudezilla v0.6.4 predated ~6 weeks of Claude Code changes (most notably `CLAUDE_CODE_SESSION_ID` exposure to bash subprocesses, `--plugin-url` direct install, MCP-server-after-`/clear` reload behavior, and Stop hook lifecycle fixes). This release adapts to those changes without adding new MCP tools or surface area.
+
+### Compatibility
+
+- **Session-scoped loop state** — Loop state in the native host is now keyed by `CLAUDE_CODE_SESSION_ID` (Claude Code 2.1.132+). Concurrent Claude Code sessions on the same machine no longer collide on a single `/focus` loop. Sessions without an ID fall back to a single `__default__` bucket, preserving pre-v0.6.5 behavior. Affected files: `host/index.js` (Map-keyed `loopStates`), `mcp/server.js` (`getClaudeCodeSessionId()` helper, propagated to `firefox_start_loop`/`firefox_stop_loop`/`firefox_loop_status`), `plugin/hooks/stop-hook.sh` (forwards `sessionId` in socket commands).
+- **Activation recovery on `/clear`** — When Claude Code reloads the MCP server after `/clear`, the gateway tool was previously the only thing visible, and the agent's first call to a known `firefox_*` tool would hard-fail with `ACTIVATION_REQUIRED`/`CATEGORY_REQUIRED`. The MCP server now auto-activates the matching category, emits `notifications/tools/list_changed`, and proceeds with the call transparently. No agent-visible behavior change beyond "things just work after `/clear`".
+- **Stop hook hardening for 2.1.136+ lifecycle** — `plugin/hooks/stop-hook.sh` now bounds every socket round-trip with `nc -w 2`, validates JSON shape before parsing with `jq -e .`, and forwards the Claude Code session ID. The hook can no longer hang Claude Code's exit path on a stuck socket. The `decision` / `reason` / `systemMessage` JSON shape is unchanged (verified against Claude Code 2.1.138 hook spec).
+- **Plugin marketplace metadata** — `plugin/.claude-plugin/plugin.json` bumped to v0.2.0 with `homepage`, `bugs`, and `license` fields populated for installation via Claude Code's `--plugin-url` flag (added in 2.1.129). Plugin README documents the install path.
+
+### Bumps
+
+- Version `0.6.4` → `0.6.5` across `package.json`, `host/package.json`, `mcp/package.json`, `extension/manifest.json`, popup surface (`extension/popup/popup.html`), `extension/background.js` `version` response, host `version` response, MCP `Server` constructor, `CLAUDE.md`, `README.md` badge.
+- Plugin manifest version `0.1.0` → `0.2.0` (independent semver from Claudezilla).
+
+### Out of Scope (deferred)
+
+- Completion-promise detection (`<promise>TEXT</promise>`) in stop hook — TODO retained, will land in v0.6.6.
+- `effort.level` adaptation in stop hook (Claude Code 2.1.133) — deferred to v0.6.6.
+- New MCP tools or categories — out of scope for a compatibility release.
+
+### References
+
+- Claude Code CHANGELOG, "2.1.129–2.1.138," anthropics/claude-code GitHub.
+- See `docs/CLZ/CLZ021 v0.6.5 Claude Code Compatibility.md` for detailed gap analysis.
 
 ## v0.6.4 (2026-03-31)
 

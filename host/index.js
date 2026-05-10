@@ -95,17 +95,57 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 
 /**
- * Loop state storage (in-memory)
- * Reset on host restart - by design to prevent orphaned loops
+ * Loop state storage (in-memory), keyed by Claude Code session ID.
+ *
+ * Claude Code 2.1.132+ exposes CLAUDE_CODE_SESSION_ID to bash subprocesses.
+ * The stop hook and the MCP server forward this so concurrent sessions
+ * don't collide. Older callers that don't provide a sessionId are bucketed
+ * under DEFAULT_SESSION (preserves pre-v0.6.5 behavior).
+ *
+ * Reset on host restart - by design to prevent orphaned loops.
  */
-let loopState = {
-  active: false,
-  prompt: '',
-  iteration: 0,
-  maxIterations: 0,
-  completionPromise: null,
-  startedAt: null,
-};
+const DEFAULT_SESSION = '__default__';
+const MAX_TRACKED_SESSIONS = 64; // bound memory; oldest evicted on overflow
+const loopStates = new Map();
+
+function emptyLoopState() {
+  return {
+    active: false,
+    prompt: '',
+    iteration: 0,
+    maxIterations: 0,
+    completionPromise: null,
+    startedAt: null,
+  };
+}
+
+function normalizeSessionId(sessionId) {
+  if (typeof sessionId !== 'string' || !sessionId) return DEFAULT_SESSION;
+  // SECURITY: bound length and reject control chars to prevent log/format injection
+  if (sessionId.length > 128) return DEFAULT_SESSION;
+  if (!/^[A-Za-z0-9_\-:.]+$/.test(sessionId)) return DEFAULT_SESSION;
+  return sessionId;
+}
+
+function getLoopStateFor(sessionId) {
+  const key = normalizeSessionId(sessionId);
+  let state = loopStates.get(key);
+  if (!state) {
+    state = emptyLoopState();
+    loopStates.set(key, state);
+    // Evict oldest entry if we exceed the cap (Map preserves insertion order)
+    if (loopStates.size > MAX_TRACKED_SESSIONS) {
+      const oldest = loopStates.keys().next().value;
+      if (oldest && oldest !== key) loopStates.delete(oldest);
+    }
+  }
+  return state;
+}
+
+function setLoopStateFor(sessionId, state) {
+  const key = normalizeSessionId(sessionId);
+  loopStates.set(key, state);
+}
 
 // SECURITY: Log to stderr and debug file with restricted permissions
 function log(...args) {
@@ -128,39 +168,42 @@ log('Script starting, cwd:', process.cwd());
 const pendingCliRequests = new Map();
 
 /**
- * Check if loop has exceeded wall-clock timeout
+ * Check if a given loop state has exceeded wall-clock timeout
+ * @param {object} state - the loop state to check
  * @returns {boolean} true if loop should be auto-stopped
  */
-function isLoopTimedOut() {
-  if (!loopState.active || !loopState.startedAt) return false;
-  const elapsed = Date.now() - new Date(loopState.startedAt).getTime();
+function isLoopTimedOut(state) {
+  if (!state || !state.active || !state.startedAt) return false;
+  const elapsed = Date.now() - new Date(state.startedAt).getTime();
   return elapsed > MAX_LOOP_DURATION_MS;
 }
 
 /**
- * Handle loop commands directly in host (not forwarded to extension)
- * SECURITY: Validates all inputs, prevents overlapping loops, enforces timeouts
+ * Handle loop commands directly in host (not forwarded to extension).
+ * Loop state is keyed by Claude Code session ID so concurrent sessions
+ * on the same machine don't collide. Falls back to DEFAULT_SESSION
+ * when no sessionId is provided (older Claude Code, raw CLI tests).
+ *
+ * SECURITY: Validates all inputs, prevents overlapping loops per session,
+ * enforces timeouts, bounds tracked sessions.
  */
 function handleLoopCommand(command, params, callback) {
+  const sessionId = normalizeSessionId(params?.sessionId);
+  let state = getLoopStateFor(sessionId);
+
   // Check for wall-clock timeout on any loop command
-  if (loopState.active && isLoopTimedOut()) {
-    log(`Loop auto-stopped: exceeded ${MAX_LOOP_DURATION_MS / 1000 / 60} minute timeout`);
-    loopState = {
-      active: false,
-      prompt: '',
-      iteration: 0,
-      maxIterations: 0,
-      completionPromise: null,
-      startedAt: null,
-    };
+  if (state.active && isLoopTimedOut(state)) {
+    log(`Loop auto-stopped (session=${sessionId}): exceeded ${MAX_LOOP_DURATION_MS / 1000 / 60} minute timeout`);
+    state = emptyLoopState();
+    setLoopStateFor(sessionId, state);
   }
 
   switch (command) {
     case 'startLoop': {
       const { prompt, maxIterations = 0, completionPromise = null } = params;
 
-      // SECURITY: Prevent overlapping loops
-      if (loopState.active) {
+      // SECURITY: Prevent overlapping loops within the same session
+      if (state.active) {
         callback({ success: false, error: 'Loop already active. Stop current loop first.' });
         return;
       }
@@ -190,7 +233,7 @@ function handleLoopCommand(command, params, callback) {
         }
       }
 
-      loopState = {
+      const next = {
         active: true,
         prompt,
         iteration: 0,
@@ -198,39 +241,33 @@ function handleLoopCommand(command, params, callback) {
         completionPromise: completionPromise || null,
         startedAt: new Date().toISOString(),
       };
-      log(`Loop started: "${prompt.slice(0, 50)}..." max=${maxIter}`);
-      callback({ success: true, result: { ...loopState } });
+      setLoopStateFor(sessionId, next);
+      log(`Loop started (session=${sessionId}): "${prompt.slice(0, 50)}..." max=${maxIter}`);
+      callback({ success: true, result: { ...next, sessionId } });
       break;
     }
 
     case 'stopLoop': {
-      const wasActive = loopState.active;
-      loopState = {
-        active: false,
-        prompt: '',
-        iteration: 0,
-        maxIterations: 0,
-        completionPromise: null,
-        startedAt: null,
-      };
-      log('Loop stopped');
-      callback({ success: true, result: { stopped: wasActive } });
+      const wasActive = state.active;
+      setLoopStateFor(sessionId, emptyLoopState());
+      log(`Loop stopped (session=${sessionId})`);
+      callback({ success: true, result: { stopped: wasActive, sessionId } });
       break;
     }
 
     case 'getLoopState': {
-      // Include timeout status in response
-      const timedOut = isLoopTimedOut();
-      callback({ success: true, result: { ...loopState, timedOut } });
+      // Include timeout status and session ID in response
+      const timedOut = isLoopTimedOut(state);
+      callback({ success: true, result: { ...state, timedOut, sessionId } });
       break;
     }
 
     case 'incrementLoopIteration': {
-      if (loopState.active) {
-        loopState.iteration += 1;
-        log(`Loop iteration: ${loopState.iteration}`);
+      if (state.active) {
+        state.iteration += 1;
+        log(`Loop iteration (session=${sessionId}): ${state.iteration}`);
       }
-      callback({ success: true, result: { iteration: loopState.iteration } });
+      callback({ success: true, result: { iteration: state.iteration, sessionId } });
       break;
     }
 
@@ -311,10 +348,10 @@ function handleExtensionMessage(message) {
       id,
       success: true,
       result: {
-        host: '0.6.4',
+        host: '0.6.5',
         node: process.version,
         platform: process.platform,
-        features: ['security-hardened', 'focus-loop', 'auto-retry', 'task-detection', 'expression-validation', 'windows-support', 'autonomous-install'],
+        features: ['security-hardened', 'focus-loop', 'auto-retry', 'task-detection', 'expression-validation', 'windows-support', 'autonomous-install', 'session-scoped-loops', 'activation-recovery'],
       },
     });
   }

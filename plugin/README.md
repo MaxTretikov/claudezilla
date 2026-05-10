@@ -25,7 +25,19 @@ The plugin is bundled with Claudezilla. To install:
 ln -s "$(pwd)/plugin" ~/.claude/plugins/claudezilla-loop
 ```
 
-Or add to your Claude Code plugin configuration.
+### Direct URL install (Claude Code 2.1.129+)
+
+Claude Code 2.1.129 added a `--plugin-url` flag that installs a plugin from a
+remote `.zip` archive. Once your plugin directory is published as a zip
+(e.g. via a GitHub release asset), users can install it without cloning:
+
+```bash
+claude --plugin-url https://github.com/boot-industries/claudezilla/releases/download/v0.6.5/claudezilla-loop-0.2.0.zip
+```
+
+The plugin manifest (`.claude-plugin/plugin.json`) declares the
+`name`, `version`, `homepage`, `bugs`, and `license` fields that Claude Code
+reads when registering the plugin.
 
 ## Usage
 
@@ -77,4 +89,5 @@ Loop State: { active, iteration, prompt, ... }
 
 ## Version
 
-0.1.0 - Initial release with Claudezilla 0.4.7
+- **0.2.0** — Claudezilla 0.6.5: session-scoped loops via `CLAUDE_CODE_SESSION_ID`, hardened stop hook (bounded `nc -w` timeouts, JSON validation), marketplace metadata
+- **0.1.0** — Initial release with Claudezilla 0.4.7

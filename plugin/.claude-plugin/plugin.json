@@ -1,11 +1,14 @@
 {
   "name": "claudezilla-loop",
-  "description": "Focus loop feature for Claudezilla - enables persistent iterative development",
-  "version": "0.1.0",
+  "description": "Focus loop feature for Claudezilla - enables persistent iterative development across Claude Code sessions",
+  "version": "0.2.0",
   "author": {
     "name": "Boot Industries",
     "email": "hello@boot.industries"
   },
   "repository": "https://github.com/boot-industries/claudezilla",
-  "keywords": ["loop", "focus", "automation", "claudezilla"]
+  "homepage": "https://claudezilla.com",
+  "bugs": "https://github.com/boot-industries/claudezilla/issues",
+  "license": "MIT",
+  "keywords": ["loop", "focus", "automation", "claudezilla", "browser", "firefox"]
 }

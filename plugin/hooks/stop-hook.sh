@@ -8,7 +8,14 @@
 # Exit with no output: allow normal exit
 # Output JSON with decision=block: continue loop
 #
+# Loop state is scoped per Claude Code session via CLAUDE_CODE_SESSION_ID
+# (Claude Code 2.1.132+). Older sessions fall back to a single global bucket.
+#
 set -euo pipefail
+
+# Bound total wall-clock time spent in this hook so a stuck socket
+# can never hang Claude Code's exit path. Each `nc` invocation uses -w 2.
+NC_TIMEOUT=2
 
 # Socket path: mirrors host/ipc.js getSafeTempDir() tier order (read-only).
 # The host creates ~/.claudezilla/ on startup; this hook is a consumer only.
@@ -25,12 +32,29 @@ if [[ ! -S "$SOCKET_PATH" ]]; then
   exit 0
 fi
 
-# Query loop state from Claudezilla host
-RESPONSE=$(echo '{"command":"getLoopState","params":{}}' | nc -U "$SOCKET_PATH" 2>/dev/null || echo '{"success":false}')
+# Build sessionId param. Claude Code 2.1.132+ exports CLAUDE_CODE_SESSION_ID;
+# host normalizes/validates and falls back to DEFAULT_SESSION if missing or
+# malformed, so it is always safe to pass.
+SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
+if [[ -n "$SESSION_ID" ]]; then
+  PARAMS=$(jq -n --arg s "$SESSION_ID" '{sessionId: $s}')
+else
+  PARAMS='{}'
+fi
+
+GET_REQ=$(jq -n --argjson p "$PARAMS" '{command: "getLoopState", params: $p}')
+
+# Query loop state from Claudezilla host. -w bounds the connection wait so
+# the hook can never block Claude Code's exit path beyond NC_TIMEOUT seconds.
+RESPONSE=$(printf '%s\n' "$GET_REQ" | nc -U -w "$NC_TIMEOUT" "$SOCKET_PATH" 2>/dev/null || echo '{"success":false}')
+
+# Validate JSON before parsing — a corrupt response should not crash the hook
+if ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+  exit 0
+fi
 
 # Check if query succeeded
 if ! echo "$RESPONSE" | jq -e '.success' >/dev/null 2>&1; then
-  # Failed to query - allow exit
   exit 0
 fi
 
@@ -55,16 +79,17 @@ fi
 # Check max iterations (0 = unlimited)
 if [[ "$MAX" -gt 0 ]] && [[ "$ITERATION" -ge "$MAX" ]]; then
   # Max iterations reached - stop loop and allow exit
-  echo '{"command":"stopLoop","params":{}}' | nc -U "$SOCKET_PATH" 2>/dev/null || true
+  STOP_REQ=$(jq -n --argjson p "$PARAMS" '{command: "stopLoop", params: $p}')
+  printf '%s\n' "$STOP_REQ" | nc -U -w "$NC_TIMEOUT" "$SOCKET_PATH" >/dev/null 2>&1 || true
   exit 0
 fi
 
-# TODO: Add completion promise detection
-# Would need to read Claude's last output and search for <promise>TEXT</promise>
-# For now, rely on max iterations for safety
+# TODO (v0.6.6): completion promise detection
+# Will read Claude's last output and search for <promise>TEXT</promise>.
 
 # Increment iteration counter
-echo '{"command":"incrementLoopIteration","params":{}}' | nc -U "$SOCKET_PATH" 2>/dev/null || true
+INC_REQ=$(jq -n --argjson p "$PARAMS" '{command: "incrementLoopIteration", params: $p}')
+printf '%s\n' "$INC_REQ" | nc -U -w "$NC_TIMEOUT" "$SOCKET_PATH" >/dev/null 2>&1 || true
 
 # Calculate next iteration number
 NEXT_ITERATION=$((ITERATION + 1))

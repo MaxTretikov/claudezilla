@@ -62,6 +62,23 @@ function truncateAgentId(id) {
 const agentConfig = new Map(); // agentId -> { allowedDomains: [...], handleConsent: boolean }
 
 /**
+ * Resolve the Claude Code session ID for loop scoping.
+ * Claude Code 2.1.132+ exports CLAUDE_CODE_SESSION_ID into Bash subprocesses
+ * and (for stdio MCP servers) into the spawned MCP process. Older Claude Code
+ * versions don't set it; we fall back so the host buckets us under DEFAULT_SESSION
+ * (preserves pre-v0.6.5 behavior).
+ *
+ * @returns {string|undefined} session ID, or undefined when unavailable
+ */
+function getClaudeCodeSessionId() {
+  const v = process.env.CLAUDE_CODE_SESSION_ID;
+  if (typeof v !== 'string' || !v) return undefined;
+  if (v.length > 128) return undefined;
+  if (!/^[A-Za-z0-9_\-:.]+$/.test(v)) return undefined;
+  return v;
+}
+
+/**
  * Check if a URL is allowed for the given agent based on their allowedDomains config
  * Returns null if allowed, error string if blocked
  */
@@ -1274,7 +1291,7 @@ const TOOL_TO_COMMAND = {
 const server = new Server(
   {
     name: 'claudezilla',
-    version: '0.6.4',
+    version: '0.6.5',
   },
   {
     capabilities: {
@@ -1351,25 +1368,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
-  // SECURITY: Block all tools (except diagnostics) before activation
-  if (name !== 'firefox_diagnose' && !isActivated) {
-    return {
-      content: [{ type: 'text', text: 'ACTIVATION_REQUIRED: Call firefox_activate first.' }],
-      isError: true,
-    };
-  }
-
-  // SECURITY: Enforce category-scoped activation at call time
+  // Activation recovery: when Claude Code drops/reloads the MCP server
+  // (e.g. across `/clear` — fixed upstream in 2.1.136 but the transition
+  // moment still loses our `activatedCategories` set), an agent's first
+  // post-reload call to a known firefox_* tool would previously hard-fail
+  // with ACTIVATION_REQUIRED/CATEGORY_REQUIRED. We instead auto-activate
+  // the relevant category, emit listChanged, and proceed with the call.
+  // This is transparent to the caller and matches the upstream pattern.
   const TOOL_TO_CATEGORY = {};
   for (const tool of TOOLS) {
     if (tool.category) TOOL_TO_CATEGORY[tool.name] = tool.category;
   }
   const toolCategory = TOOL_TO_CATEGORY[name];
+
+  if (name !== 'firefox_diagnose' && !isActivated) {
+    if (!toolCategory) {
+      // Unknown tool name — surface a discoverable error
+      return {
+        content: [{ type: 'text', text: 'ACTIVATION_REQUIRED: Call firefox_activate first.' }],
+        isError: true,
+      };
+    }
+    const groups = CATEGORY_GROUPS[toolCategory] || [toolCategory];
+    for (const cat of groups) activatedCategories.add(cat);
+    isActivated = true;
+    server.notification({ method: 'notifications/tools/list_changed' }).catch(err => {
+      console.error('[claudezilla] listChanged notification failed:', err.message);
+    });
+    console.error(`[claudezilla] Activation recovery: auto-activated category "${toolCategory}" for tool "${name}"`);
+  }
+
+  // SECURITY: Enforce category-scoped activation at call time
   if (toolCategory && !activatedCategories.has(toolCategory)) {
-    return {
-      content: [{ type: 'text', text: `CATEGORY_REQUIRED: "${name}" needs category "${toolCategory}". Call firefox_activate({ category: "${toolCategory}" }).` }],
-      isError: true,
-    };
+    const groups = CATEGORY_GROUPS[toolCategory] || [toolCategory];
+    for (const cat of groups) activatedCategories.add(cat);
+    server.notification({ method: 'notifications/tools/list_changed' }).catch(err => {
+      console.error('[claudezilla] listChanged notification failed:', err.message);
+    });
+    console.error(`[claudezilla] Category recovery: auto-activated "${toolCategory}" for tool "${name}"`);
   }
 
   // Special case: firefox_set_config runs locally (updates in-memory agent config)
@@ -1469,6 +1505,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       commandParams.agentId = AGENT_ID;
       // Update heartbeat for this agent
       updateAgentHeartbeat(AGENT_ID);
+    }
+
+    // Loop commands: forward Claude Code session ID so concurrent sessions
+    // don't share loop state. Host falls back to DEFAULT_SESSION when absent.
+    const LOOP_TOOLS = ['firefox_start_loop', 'firefox_stop_loop', 'firefox_loop_status'];
+    if (LOOP_TOOLS.includes(name)) {
+      const sid = getClaudeCodeSessionId();
+      if (sid) commandParams.sessionId = sid;
     }
 
     // Domain allowlist check for navigate/createWindow
