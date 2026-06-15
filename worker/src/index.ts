@@ -18,6 +18,76 @@ interface Env {
   DB?: D1Database;
 }
 
+/**
+ * Stable hash of a string using SHA-256. Used to derive idempotency keys
+ * from request bodies so retried checkout creations don't produce duplicate
+ * Stripe Checkout sessions.
+ */
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Verify a Stripe webhook signature header.
+ * Header format: `t=<timestamp>,v1=<sig>,v1=<sig>,…` (Stripe may include
+ * multiple v1 signatures during secret rotation).
+ *
+ * Returns true on first matching v1 signature within a 5-minute tolerance.
+ */
+async function verifyStripeSignature(
+  payload: string,
+  header: string | null,
+  secret: string,
+): Promise<boolean> {
+  if (!header) return false;
+
+  const parts = header.split(',').reduce<Record<string, string[]>>((acc, p) => {
+    const [k, v] = p.split('=');
+    if (k && v) (acc[k] ||= []).push(v);
+    return acc;
+  }, {});
+
+  const timestamp = parts['t']?.[0];
+  const signatures = parts['v1'] || [];
+  if (!timestamp || signatures.length === 0) return false;
+
+  // 5-minute replay-protection window (matches Stripe library default)
+  const nowSec = Math.floor(Date.now() / 1000);
+  const ts = parseInt(timestamp, 10);
+  if (!Number.isFinite(ts) || Math.abs(nowSec - ts) > 300) return false;
+
+  const signedPayload = `${timestamp}.${payload}`;
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sigBytes = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(signedPayload),
+  );
+  const expected = Array.from(new Uint8Array(sigBytes))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  // Constant-time equality across each provided v1 sig
+  return signatures.some(sig => timingSafeEqualHex(sig, expected));
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 // SECURITY: Allowed origins for CORS and request validation
 const ALLOWED_ORIGINS = [
   'https://boot.industries',
@@ -152,12 +222,23 @@ export default {
           params.append('line_items[0][price_data][recurring][interval]', 'month');
         }
 
+        // Derive an Idempotency-Key from the request shape so retries by a
+        // flaky client (or our own fetch retry under transient network
+        // failure) don't produce duplicate Checkout sessions on Stripe's side.
+        // Key includes the body-derived params + the cf-ray header (when
+        // present) to differentiate distinct front-end attempts that happen
+        // to send identical bodies.
+        const idempotencyKey = await sha256Hex(
+          params.toString() + '|' + (request.headers.get('cf-ray') || ''),
+        );
+
         // Call Stripe API
         const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${stripeKey}`,
             'Content-Type': 'application/x-www-form-urlencoded',
+            'Idempotency-Key': idempotencyKey,
           },
           body: params.toString(),
         });
@@ -263,6 +344,87 @@ export default {
           { status: 500, headers: corsHeaders }
         );
       }
+    }
+
+    // Stripe webhook endpoint
+    // Currently handles `checkout.session.completed` only.
+    // Other events (subscription churn, payment failures) are intentionally
+    // ignored until they're actually needed — Stripe will return 200 and
+    // not re-deliver if we acknowledge with a 200.
+    if (url.pathname === '/webhook' && request.method === 'POST') {
+      const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        console.error('Webhook hit but STRIPE_WEBHOOK_SECRET is not configured');
+        return new Response('Webhook not configured', { status: 500 });
+      }
+
+      // Read raw body — Stripe signs the exact bytes sent
+      const rawBody = await request.text();
+      const signature = request.headers.get('Stripe-Signature');
+
+      const verified = await verifyStripeSignature(rawBody, signature, webhookSecret);
+      if (!verified) {
+        console.error('Invalid Stripe signature on /webhook');
+        return new Response('Invalid signature', { status: 401 });
+      }
+
+      let event: { type?: string; data?: { object?: Record<string, unknown> }; id?: string };
+      try {
+        event = JSON.parse(rawBody);
+      } catch {
+        return new Response('Invalid JSON', { status: 400 });
+      }
+
+      // Only handle checkout.session.completed for now (min-viable scope)
+      if (event.type !== 'checkout.session.completed') {
+        // Acknowledge so Stripe doesn't retry events we don't care about
+        return new Response('Ignored', { status: 200 });
+      }
+
+      const session = event.data?.object as Record<string, any> | undefined;
+      if (!session) return new Response('Malformed event', { status: 400 });
+
+      const stripeSessionId = String(session.id || '');
+      const stripePaymentIntent = session.payment_intent ? String(session.payment_intent) : null;
+      const amountTotal = typeof session.amount_total === 'number' ? session.amount_total : 0;
+      const currency = String(session.currency || 'usd');
+      const customerEmail = session.customer_details?.email || session.customer_email || null;
+      const mode = String(session.mode || 'payment');
+      const eventId = String(event.id || '');
+
+      const db = env.DB;
+      if (!db) {
+        console.error('Webhook received but DB binding is not configured');
+        // Return 500 so Stripe retries when the binding is wired up
+        return new Response('Database not configured', { status: 500 });
+      }
+
+      try {
+        // INSERT OR IGNORE guards against Stripe redelivering the same event
+        // (e.g. our 200 acknowledgment was lost), so we silently de-dupe on
+        // stripe_event_id.
+        await db.prepare(
+          `INSERT OR IGNORE INTO donations
+            (stripe_event_id, stripe_session_id, stripe_payment_intent,
+             email, amount_cents, currency, mode, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          eventId,
+          stripeSessionId,
+          stripePaymentIntent,
+          customerEmail,
+          amountTotal,
+          currency,
+          mode,
+          Date.now(),
+        ).run();
+      } catch (e) {
+        console.error('Failed to insert donation row:', e);
+        // Return 500 so Stripe retries the event
+        return new Response('DB write failed', { status: 500 });
+      }
+
+      return new Response('OK', { status: 200 });
     }
 
     // Health check endpoint
