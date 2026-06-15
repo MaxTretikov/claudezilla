@@ -8,7 +8,8 @@
     "lint:ext": "web-ext lint --source-dir=extension",
     "install:host": "cd host && npm install",
     "install:macos": "./install/install-macos.sh",
-    "test": "echo 'Run: npm run install:macos && load extension in about:debugging'"
+    "test": "node --test 'tests/**/*.test.mjs'",
+    "test:install": "echo 'Run: npm run install:macos && load extension in about:debugging'"
   },
   "repository": {
     "type": "git",
@@ -23,6 +24,6 @@
     "webextension"
   ],
   "devDependencies": {
-    "web-ext": "9.2.0"
+    "web-ext": "10.4.0"
   }
 }
