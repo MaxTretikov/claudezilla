@@ -23,8 +23,16 @@ async function checkPermissionStatus() {
 // Check permission status
 checkPermissionStatus();
 
-// Recheck every 2 seconds in case user enables permission
-setInterval(checkPermissionStatus, 2000);
+// Recheck every 2 seconds in case user enables permission. Stop polling once
+// the permission flips to "enabled" so a long-open welcome tab doesn't keep
+// the interval running forever.
+const permissionPollId = setInterval(async () => {
+  await checkPermissionStatus();
+  const badge = document.getElementById('permissionStatus');
+  if (badge && badge.classList.contains('enabled')) {
+    clearInterval(permissionPollId);
+  }
+}, 2000);
 
 /**
  * Support button - open support page in new tab

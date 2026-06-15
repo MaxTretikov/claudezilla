@@ -18,6 +18,11 @@
 
 const NATIVE_HOST = 'claudezilla';
 
+// Verbose per-message logging. Off in shipped builds so command payloads
+// (which include typed text) don't end up in the console by default.
+// Flip to true locally when debugging the native messaging bridge.
+const DEBUG_LOG_HOST_MESSAGES = false;
+
 let port = null;
 const pendingRequests = new Map();
 // Parallel map keyed by id holding each request's timeout handle so we can
@@ -68,12 +73,6 @@ const pendingSlotRequests = [];  // [{ agentId, requestedAt }]
 // Map: agentId -> { reservedAt, expiresAt }
 const slotReservations = new Map();
 const SLOT_RESERVATION_TTL_MS = 30000; // 30 seconds to claim reserved slot
-
-// Tab group colors (Firefox 138+)
-const SESSION_COLORS = ['blue', 'red', 'yellow', 'green', 'pink', 'cyan', 'orange', 'grey'];
-
-// Legacy session map for backward compatibility
-const sessions = new Map();
 
 // Network request monitoring
 const networkRequests = [];
@@ -532,7 +531,7 @@ function sendToHost(command, params = {}) {
     }, timeoutMs);
     pendingRequestTimers.set(id, timer);
 
-    console.log('[claudezilla] Sending to host:', message);
+    if (DEBUG_LOG_HOST_MESSAGES) console.log('[claudezilla] Sending to host:', message);
     port.postMessage(message);
   });
 }
@@ -975,9 +974,6 @@ async function handleCliCommand(message) {
             isPrivate: win.incognito
           };
           activeTabId = tabId;
-
-          // Legacy session map for backward compat
-          sessions.set(win.id, { windowId: win.id, tabId });
         }
 
         // Enable Claudezilla visuals on this tab
@@ -1369,7 +1365,6 @@ async function handleCliCommand(message) {
 
         const winId = claudezillaWindow.windowId;
         const tabCount = claudezillaWindow.tabs.length;
-        sessions.delete(winId);
         claudezillaWindow = null;
         activeTabId = null;
         await browser.windows.remove(winId);
@@ -1991,7 +1986,6 @@ browser.runtime.onMessage.addListener((message, sender) => {
 browser.windows.onRemoved.addListener((windowId) => {
   if (claudezillaWindow && claudezillaWindow.windowId === windowId) {
     console.log('[claudezilla] Window closed');
-    sessions.delete(windowId);
     claudezillaWindow = null;
     activeTabId = null;
   }

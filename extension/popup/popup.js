@@ -305,8 +305,11 @@ async function init() {
     stopLoopBtn.addEventListener('click', stopLoop);
   }
 
-  // Periodically refresh loop status while popup is open
-  setInterval(checkLoopStatus, 2000);
+  // Periodically refresh loop status while popup is open. Clear on unload
+  // even though the document is going away anyway, so the timer doesn't try
+  // to fire one last time against a torn-down DOM.
+  const statusPollId = setInterval(checkLoopStatus, 2000);
+  window.addEventListener('unload', () => clearInterval(statusPollId), { once: true });
 }
 
 init();

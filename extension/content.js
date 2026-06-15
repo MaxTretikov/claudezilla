@@ -1823,7 +1823,7 @@ async function resizeImage(params) {
  * Uses Shadow DOM to avoid polluting page CSS
  * @param {object} params
  * @param {number} params.maxElements - Max elements to annotate (default: 30)
- * @returns {object} labels map {index: {selector, text, role}}
+ * @returns {{labels: object, count: number}} labels map {index: {selector, text, role}} + count
  */
 function annotateElements(params = {}) {
   const { maxElements = 30 } = params;

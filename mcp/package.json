@@ -11,5 +11,8 @@
     "@modelcontextprotocol/sdk": "1.29.0"
   },
   "author": "Chris Lyons <support@boot.industries>",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  }
 }

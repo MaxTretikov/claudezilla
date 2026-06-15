@@ -13,7 +13,7 @@
  */
 
 import { readMessage, sendMessage } from './protocol.js';
-import { appendFileSync, unlinkSync, existsSync, chmodSync, writeFileSync } from 'fs';
+import { appendFileSync, unlinkSync, existsSync, writeFileSync, readFileSync } from 'fs';
 import { createServer } from 'net';
 import { randomUUID, randomBytes, timingSafeEqual } from 'crypto';
 import {
@@ -26,6 +26,13 @@ import {
   ensureParentDir,
   isWindows
 } from './ipc.js';
+
+// Single source of truth for the host version. Reading from package.json at
+// module load keeps the `version` response in sync with the npm-tracked
+// version without manual edits in two places.
+const HOST_VERSION = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8')
+).version;
 
 // Platform-independent paths from ipc.js abstraction layer
 const DEBUG_LOG = getDebugLogPath();
@@ -360,7 +367,7 @@ function handleExtensionMessage(message) {
       id,
       success: true,
       result: {
-        host: '0.6.5',
+        host: HOST_VERSION,
         node: process.version,
         platform: process.platform,
         features: ['security-hardened', 'focus-loop', 'auto-retry', 'task-detection', 'expression-validation', 'windows-support', 'autonomous-install', 'session-scoped-loops', 'activation-recovery'],

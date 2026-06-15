@@ -18,6 +18,13 @@ import { randomBytes } from 'crypto';
 import { readFileSync, existsSync, statSync } from 'fs';
 import { getSocketPath, getAuthTokenPath } from '../host/ipc.js';
 
+// Single source of truth for the MCP server version. Reading from
+// package.json at module load keeps the version response in sync with the
+// npm-tracked version without manual edits in two places.
+const MCP_VERSION = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8')
+).version;
+
 // Platform-independent paths from ipc.js abstraction layer
 const SOCKET_PATH = getSocketPath();
 const AUTH_TOKEN_FILE = getAuthTokenPath();
@@ -1300,7 +1307,7 @@ const TOOL_TO_COMMAND = {
 const server = new Server(
   {
     name: 'claudezilla',
-    version: '0.6.5',
+    version: MCP_VERSION,
   },
   {
     capabilities: {
