@@ -21,6 +21,9 @@
   <meta name="twitter:description" content="Claude Code browser automation that works where Chrome can't. Firefox-native. Zero telemetry.">
   <meta name="twitter:image" content="https://claudezilla.com/assets/images/og-image.png">
 
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+
   <!-- Styles (fonts self-hosted, no Google dependency) -->
   <link rel="stylesheet" href="/assets/styles.css?v=11">
 </head>
@@ -54,7 +57,7 @@
         </p>
         <div class="cta-grid">
           <a href="https://addons.mozilla.org/firefox/addon/claudezilla/" class="firefox-badge" target="_blank" rel="noopener">
-            <img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Get Claudezilla for Firefox">
+            <img src="/assets/images/get-the-addon-firefox.svg" alt="Get Claudezilla for Firefox" width="172" height="60">
           </a>
           <a href="/extension.html" class="btn-secondary">Setup</a>
           <a href="https://docs.claudezilla.com" class="btn-secondary">Docs</a>
@@ -337,24 +340,6 @@ cd claudezilla && ./install/install-macos.sh</code></pre>
     </div>
   </footer>
 
-  <script>
-    // Thank you modal on #thanks hash
-    if (window.location.hash === '#thanks') {
-      const modal = document.getElementById('thanksModal');
-      modal.style.display = 'flex';
-      // Clear hash from URL without reload
-      history.replaceState(null, '', window.location.pathname);
-      // Auto-dismiss after 4 seconds
-      setTimeout(() => {
-        modal.classList.add('fade-out');
-        setTimeout(() => { modal.style.display = 'none'; }, 500);
-      }, 4000);
-      // Click to dismiss early
-      modal.addEventListener('click', () => {
-        modal.classList.add('fade-out');
-        setTimeout(() => { modal.style.display = 'none'; }, 500);
-      });
-    }
-  </script>
+  <script src="/scripts/thanks-modal.js"></script>
 </body>
 </html>
