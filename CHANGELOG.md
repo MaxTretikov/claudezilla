@@ -1,7 +1,53 @@
 # CLZ002 Changelog
 
 **Project:** Claudezilla
-**Current Version:** 0.6.5
+**Current Version:** 0.6.6
+
+## v0.6.6 (2026-06-15)
+
+**Stability, security, and AMO compliance — no new MCP tools.**
+
+Maintenance release closing a backlog of stability bugs, AMO lint warnings, and worker/website misconfiguration that had accumulated since v0.6.5. No behavior change for normal MCP usage; donors hit a corrected redirect; AMO reviewers see explicit opt-in gates instead of bare `eval` patterns.
+
+### Stability
+
+- **Timer-leak fixes** — Per-request `setTimeout` handles in `host/index.js`, `mcp/server.js`, and `extension/background.js` are now tracked in parallel Maps and cleared on response routing, socket close, and timeout fire. Long-lived sessions no longer accumulate retained timers.
+- **Shutdown races plugged** — `mcp/server.js` cleanup interval is now `unref()`'d, fire-and-forget `setTimeout(handleConsent, 600)` after navigate is tracked and cleared on shutdown, and `clearInterval` precedes `await sendGoodbye` so the cleanup loop can't race the goodbye round-trip.
+- **`unhandledRejection` no longer kills the server** — `mcp/server.js` previously called `process.exit(1)` on any unhandled promise rejection, ending the session if a single tool path missed a `.catch()`. Now logs and continues (Node pre-v15 behavior).
+- **Inbound framing cap lowered** — `host/protocol.js` previously allowed up to 4 GB per message (native-messaging maximum). Capped at 10 MB to match `MAX_BUFFER_SIZE` on the MCP side, preventing buggy or hostile builds from forcing huge buffer pre-allocation.
+- **Screenshot mutex race** — `extension/background.js` mutex holder is now assigned synchronously before the promise chain, eliminating the microtask-race window that could produce spurious `MUTEX_BUSY` rejections on concurrent screenshots.
+
+### Security / AMO compliance
+
+- **`firefox_evaluate` opt-in gate** — The MCP tool now requires `claudezilla.allowEvaluate = true` in `browser.storage.local` (toggled from the popup's new **Security** section). Disabled by default. Documented in `SECURITY.md` §12 for AMO reviewers; clears the `DANGEROUS_EVAL` lint warning's exploitability concern even though the denylist remains in place as defense-in-depth.
+- **Watermark refactored to DOM construction** — `watermarkShadow.innerHTML = ...` replaced with `<style>.textContent = CSS` + `DOMParser` SVG import + `createElement` subtree. Clears the `UNSAFE_VAR_ASSIGNMENT` lint warning. No visual change.
+- **Manifest hygiene** — `strict_min_version` bumped 91 → 140 (required by `tabs.group`/`tabGroups.update` and `data_collection_permissions`); `webRequestBlocking` permission dropped (no blocking listener was ever wired up); `content_scripts.all_frames` explicitly set to `false`.
+
+### Worker / website
+
+- **`/notify` D1 binding deferred with activation runbook** — `worker/wrangler.toml` previously shipped a placeholder D1 ID and a `boot.industries` `FRONTEND_URL` that redirected donors off-brand. Worker now points at `claudezilla.com`; the D1 binding for the deferred `claudezilla-emails` waitlist is commented out with a 5-step activation runbook for when it's ready.
+- **Stripe webhook (min-viable)** — `POST /webhook` route added with HMAC-SHA256 signature verification (5-min replay window, multi-sig support, timing-safe hex comparison). Handles `checkout.session.completed`, idempotent via `stripe_event_id UNIQUE` constraint. `schema.sql` adds `donations` and `schema_version` tables; redundant `idx_email` dropped (the column was already `UNIQUE`).
+- **Stripe API idempotency** — Checkout session creation now sends an `Idempotency-Key` header derived from the request body hash, so retries don't create duplicate sessions.
+- **Pages deploy workflow** — `.github/workflows/pages-deploy.yml` added (SHA-pinned `cloudflare/wrangler-action`), `workflow_dispatch`-only for now. Unblocks future pushes once `CLOUDFLARE_API_TOKEN` is provisioned.
+- **Marketing site SEO + headers** — Added favicon links, `robots.txt`, `sitemap.xml`, self-hosted Mozilla install badge (was loading from `blog.mozilla.org` — contradicted the zero-telemetry copy). `_headers` adds HSTS, CSP (`script-src 'self'`, `connect-src 'self' https://api.claudezilla.com`), Permissions-Policy, immutable cache headers for `/assets/*` and `/fonts/*`. Inline `<script>` extracted to `scripts/thanks-modal.js`.
+- **Website changelog backfill** — Six release entries (v0.6.0 → v0.6.5) backfilled into `website/changelog.html`. Hero badge refreshed.
+
+### Tooling
+
+- **`engines` field** added to `host/package.json` and `mcp/package.json` (`node >=18.17`).
+- **Version centralization** — `host/index.js` and `mcp/server.js` now read version from their `package.json` via `import.meta.url`; `extension/background.js` reads from `browser.runtime.getManifest().version`. No more drift between hardcoded strings.
+- **`web-ext` bumped 9.2.0 → 10.4.0.**
+- **Test seed** — `tests/*.test.mjs` added with `node --test` coverage of `host/protocol.js` framing + `host/ipc.js` path validation. Run via `pnpm test`. No test framework dependency.
+- **Dead code removed** — `mcp/task-detector.js` (248 LOC, no consumers), `sessions` Map + `SESSION_COLORS` in `extension/background.js`, unused `chmodSync` import in `host/index.js`, `extension/CLAUDE.md`/`host/CLAUDE.md`/`mcp/CLAUDE.md` placeholder files. `web-ext.config.js` updated to exclude these from packaged `.zip`.
+- **Centralized switch hoist** — `extension/content.js` previously had three function declarations (`annotateElements`, `removeAnnotations`, `handleConsent`, ~270 LOC) declared inside a `runtime.onMessage` switch block between cases. Hoisted to module scope. Behavior-preserving (function decls hoist anyway) but breaks strict-mode parsers and would block MV3 module conversion.
+
+### Docs
+
+- `claudezilla-docs`: corrected orphan-timeout reference (`2 min` → `10 min`), `firefox_get_network_requests` → `firefox_get_network` typo, added Mode Awareness subsection to `firefox_set_private_mode`, added auto-fallback notes + `private` parameter row to `firefox_create_window`, font payload pruned (~464 KB savings).
+
+### Bumps
+
+- Version `0.6.5` → `0.6.6` across `package.json`, `host/package.json`, `mcp/package.json`, `extension/manifest.json`, `extension/popup/popup.html`, `CLAUDE.md`, `README.md` badge, `website/extension.html`. Plugin manifest unchanged (independent semver, still 0.2.0).
 
 ## v0.6.5 (2026-05-10)
 
