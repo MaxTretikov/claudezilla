@@ -55,6 +55,7 @@
 
     .status-text {
       flex: 1;
+      font-size: 12px;
     }
 
     .section {
@@ -102,6 +103,11 @@
       align-items: center;
       gap: 6px;
       font-size: 12px;
+    }
+
+    /* Label text fills width so trailing .setting-icon sits at the right edge */
+    .setting-row label > span:not(.setting-icon) {
+      flex: 1;
     }
 
     /* Auto-Loop section uses inline .checkbox-label markup, not .setting-row */
@@ -247,15 +253,15 @@
       <div class="setting-row">
         <label>
           <input type="checkbox" id="showWatermark" checked>
-          <span class="setting-icon">◈</span>
           <span>Claude logo badge</span>
+          <span class="setting-icon">◈</span>
         </label>
       </div>
       <div class="setting-row">
         <label>
           <input type="checkbox" id="showFocusglow" checked>
-          <span class="setting-icon">✨</span>
           <span>Focus glow</span>
+          <span class="setting-icon">✨</span>
         </label>
       </div>
     </div>
@@ -267,8 +273,8 @@
       <div class="setting-row">
         <label>
           <input type="checkbox" id="compressImages" checked>
-          <span class="setting-icon">📸</span>
           <span>Compress screencaps</span>
+          <span class="setting-icon">📸</span>
         </label>
       </div>
       <div class="setting-hint">Reduce file size (default: on)</div>
@@ -281,8 +287,8 @@
       <div class="setting-row">
         <label>
           <input type="checkbox" id="allowEvaluate">
-          <span class="setting-icon">⚠</span>
           <span>Allow JavaScript evaluation</span>
+          <span class="setting-icon">⚠</span>
         </label>
       </div>
       <div class="setting-hint">Enables firefox_evaluate (default: off)</div>
@@ -321,10 +327,10 @@
         <input type="checkbox" id="enableAutoStart" style="width: 15px; height: 15px;">
         <span>Auto-start loops (no confirmation)</span>
       </label>
-      <label style="display: flex; align-items: center; gap: 6px; padding: 5px 11px;">
+      <label style="display: flex; align-items: center; gap: 6px; padding: 5px 11px; font-size: 12px;">
         <span style="flex-shrink: 0;">Default iterations:</span>
         <input type="number" id="defaultMaxIterations" value="15" min="5" max="50"
-               style="width: 60px; padding: 3px 6px; border: 1px solid #444; border-radius: 4px; background: #2a2a2a; color: #fff;">
+               style="width: 60px; padding: 3px 6px; border: 1px solid #444; border-radius: 4px; background: #2a2a2a; color: #fff; font-size: 12px;">
       </label>
     </div>
   </div>
