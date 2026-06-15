@@ -13,7 +13,12 @@ async function checkPermissionStatus() {
     if (hasPermission) {
       permissionBadge.classList.remove('disabled');
       permissionBadge.classList.add('enabled');
-      permissionBadge.innerHTML = '<span class="dot"></span>Private Windows: Enabled ✓';
+      // SECURITY: Build via DOM methods (no innerHTML — AMO UNSAFE_VAR_ASSIGNMENT)
+      permissionBadge.replaceChildren();
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      permissionBadge.appendChild(dot);
+      permissionBadge.appendChild(document.createTextNode('Private Windows: Enabled ✓'));
     }
   } catch (e) {
     console.log('[claudezilla] Could not check permission status:', e);

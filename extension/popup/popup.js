@@ -113,7 +113,7 @@ function setStatus(connected, text) {
 }
 
 function setInfo(info) {
-  infoDiv.innerHTML = '';
+  infoDiv.replaceChildren();
   infoDiv.style.display = 'block';
   Object.entries(info).forEach(([key, value]) => {
     const div = document.createElement('div');
