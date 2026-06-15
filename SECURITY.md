@@ -153,6 +153,20 @@ All CSS selectors are validated before use:
 
 **Why:** Prevents selector injection and DoS via malformed selectors.
 
+### 12. `firefox_evaluate` Opt-In Gate (v0.6.6)
+
+The `firefox_evaluate` MCP tool executes arbitrary JavaScript via the `Function` constructor inside the page's isolated content-script context. Although every expression passes a denylist (`fetch`, `XMLHttpRequest`, `eval`, `Function`, `setTimeout`, `setInterval`, `document.cookie`, `localStorage`, `sessionStorage`) and a 10,000-character length cap, denylists are not bulletproof — template literals, unicode escapes, or property-access tricks could in principle slip past.
+
+To make the security posture explicit, **`firefox_evaluate` is disabled by default**. Calls return:
+
+> `firefox_evaluate is disabled. Enable it from the Claudezilla popup (Settings → Allow JavaScript evaluation).`
+
+Users opt in via the popup checkbox in the **Security** section, which sets `claudezilla.allowEvaluate = true` in `browser.storage.local`. The setting is picked up immediately by the content script via the existing `storage.onChanged` listener — no page reload required.
+
+**Why:** AMO reviewers flag `new Function(...)` usage (`DANGEROUS_EVAL` warning) regardless of validation. Gating the feature behind explicit user consent demonstrates defense-in-depth, matches the precedent set by Console Capture (§10), and ensures inadvertent installs cannot be exploited to evaluate arbitrary expressions even if an upstream Claude session was prompt-injected.
+
+**For AMO reviewers:** The denylist (`extension/content.js` `BLOCKED_EXPRESSION_PATTERNS`) is intentionally conservative and intended only as a secondary safety net. The primary control is the user-toggled `allowEvaluate` storage flag, checked at the top of `evaluate()` (`extension/content.js`).
+
 ## Prompt Injection Mitigation
 
 ### The Risk

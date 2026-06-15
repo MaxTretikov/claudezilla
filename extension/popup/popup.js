@@ -11,6 +11,7 @@ const errorDiv = document.getElementById('error');
 const showWatermarkCheckbox = document.getElementById('showWatermark');
 const showFocusglowCheckbox = document.getElementById('showFocusglow');
 const compressImagesCheckbox = document.getElementById('compressImages');
+const allowEvaluateCheckbox = document.getElementById('allowEvaluate');
 
 // Loop elements
 const loopSection = document.getElementById('loopSection');
@@ -28,6 +29,7 @@ const DEFAULT_SETTINGS = {
   showWatermark: true,
   showFocusglow: true,
   compressImages: true,
+  allowEvaluate: false,
 };
 
 // Default auto-loop settings (v0.5.0)
@@ -47,6 +49,7 @@ async function loadSettings() {
     showWatermarkCheckbox.checked = settings.showWatermark;
     showFocusglowCheckbox.checked = settings.showFocusglow;
     compressImagesCheckbox.checked = settings.compressImages;
+    allowEvaluateCheckbox.checked = settings.allowEvaluate;
   } catch (e) {
     console.log('[claudezilla] Could not load settings:', e.message);
   }
@@ -61,6 +64,7 @@ async function saveSettings() {
       showWatermark: showWatermarkCheckbox.checked,
       showFocusglow: showFocusglowCheckbox.checked,
       compressImages: compressImagesCheckbox.checked,
+      allowEvaluate: allowEvaluateCheckbox.checked,
     };
     await browser.storage.local.set({ claudezilla: settings });
   } catch (e) {
@@ -285,6 +289,7 @@ async function init() {
   showWatermarkCheckbox.addEventListener('change', saveSettings);
   showFocusglowCheckbox.addEventListener('change', saveSettings);
   compressImagesCheckbox.addEventListener('change', saveSettings);
+  allowEvaluateCheckbox.addEventListener('change', saveSettings);
 
   // Add auto-loop setting change listeners (v0.5.0)
   enableAutoDetectCheckbox.addEventListener('change', saveAutoLoopSettings);

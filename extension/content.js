@@ -12,6 +12,7 @@
 let settings = {
   showWatermark: true,
   showFocusglow: true,
+  allowEvaluate: false,  // SECURITY: firefox_evaluate requires explicit opt-in (AMO compliance)
 };
 
 // Visual elements
@@ -149,6 +150,115 @@ const CLAUDE_LOGO_SVG = `
 `;
 
 /**
+ * Watermark shadow-DOM stylesheet (assigned via textContent — safe per AMO)
+ */
+const WATERMARK_SHADOW_CSS = `
+  :host {
+    display: block;
+    position: relative;
+  }
+  .watermark-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: rgba(20, 18, 18, 0.94);
+    border-radius: 14px;
+    padding: 12px;
+    opacity: 0.95;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+    animation: claudezilla-glow-throb 4s ease-in-out infinite;
+    transition: opacity 0.3s ease, transform 0.15s ease;
+    box-sizing: border-box;
+  }
+  .watermark-inner:hover {
+    transform: scale(1.05);
+  }
+  @keyframes claudezilla-glow-throb {
+    0% {
+      box-shadow:
+        0 0 20px 4px rgba(209, 77, 50, 0.5),
+        0 0 40px 8px rgba(209, 77, 50, 0.25),
+        0 0 60px 12px rgba(209, 77, 50, 0.1),
+        0 4px 16px rgba(0, 0, 0, 0.5),
+        inset 0 0 0 1px rgba(209, 77, 50, 0.3);
+    }
+    25% {
+      box-shadow:
+        0 0 28px 6px rgba(209, 77, 50, 0.6),
+        0 0 52px 12px rgba(209, 77, 50, 0.35),
+        0 0 80px 18px rgba(209, 77, 50, 0.15),
+        0 4px 16px rgba(0, 0, 0, 0.5),
+        inset 0 0 0 1px rgba(209, 77, 50, 0.4);
+    }
+    100% {
+      box-shadow:
+        0 0 20px 4px rgba(209, 77, 50, 0.5),
+        0 0 40px 8px rgba(209, 77, 50, 0.25),
+        0 0 60px 12px rgba(209, 77, 50, 0.1),
+        0 4px 16px rgba(0, 0, 0, 0.5),
+        inset 0 0 0 1px rgba(209, 77, 50, 0.3);
+    }
+  }
+  /* Speech bubble styles */
+  @keyframes claudezilla-bubble-pop {
+    0% { transform: scale(0); opacity: 0; }
+    70% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes claudezilla-note-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-1px); }
+  }
+  /* LOCKED COORDINATES - calibrated 2026-01-06, do not change */
+  .speech-bubble {
+    position: absolute !important;
+    top: 36px !important;
+    right: 32px !important;
+    left: auto !important;
+    bottom: auto !important;
+    margin: 0 !important;
+    width: 8px;
+    height: 8px;
+    background: #f5f5f4;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    opacity: 0;
+    transform: scale(0);
+    pointer-events: none;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  }
+  .speech-bubble.singing {
+    opacity: 1;
+    transform: scale(1);
+    animation: claudezilla-bubble-pop 0.25s ease-out forwards;
+  }
+  .speech-bubble .note {
+    font-size: 7px;
+    color: #1a1a1a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    line-height: 1;
+    animation: claudezilla-note-bob 0.5s ease-in-out infinite;
+  }
+  .speech-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: -1px;
+    width: 0;
+    height: 0;
+    border: 3px solid transparent;
+    border-top-color: #f5f5f4;
+    transform: rotate(-45deg);
+  }
+`;
+
+/**
  * Initialize watermark (Claude logo badge)
  */
 function initWatermark() {
@@ -174,120 +284,28 @@ function initWatermark() {
     cursor: pointer;
   `;
 
-  // All styles go inside shadow DOM for isolation
-  watermarkShadow.innerHTML = `
-    <style>
-      :host {
-        display: block;
-        position: relative;
-      }
-      .watermark-inner {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        background: rgba(20, 18, 18, 0.94);
-        border-radius: 14px;
-        padding: 12px;
-        opacity: 0.95;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: visible;
-        animation: claudezilla-glow-throb 4s ease-in-out infinite;
-        transition: opacity 0.3s ease, transform 0.15s ease;
-        box-sizing: border-box;
-      }
-      .watermark-inner:hover {
-        transform: scale(1.05);
-      }
-      @keyframes claudezilla-glow-throb {
-        0% {
-          box-shadow:
-            0 0 20px 4px rgba(209, 77, 50, 0.5),
-            0 0 40px 8px rgba(209, 77, 50, 0.25),
-            0 0 60px 12px rgba(209, 77, 50, 0.1),
-            0 4px 16px rgba(0, 0, 0, 0.5),
-            inset 0 0 0 1px rgba(209, 77, 50, 0.3);
-        }
-        25% {
-          box-shadow:
-            0 0 28px 6px rgba(209, 77, 50, 0.6),
-            0 0 52px 12px rgba(209, 77, 50, 0.35),
-            0 0 80px 18px rgba(209, 77, 50, 0.15),
-            0 4px 16px rgba(0, 0, 0, 0.5),
-            inset 0 0 0 1px rgba(209, 77, 50, 0.4);
-        }
-        100% {
-          box-shadow:
-            0 0 20px 4px rgba(209, 77, 50, 0.5),
-            0 0 40px 8px rgba(209, 77, 50, 0.25),
-            0 0 60px 12px rgba(209, 77, 50, 0.1),
-            0 4px 16px rgba(0, 0, 0, 0.5),
-            inset 0 0 0 1px rgba(209, 77, 50, 0.3);
-        }
-      }
-      /* Speech bubble styles */
-      @keyframes claudezilla-bubble-pop {
-        0% { transform: scale(0); opacity: 0; }
-        70% { transform: scale(1.1); }
-        100% { transform: scale(1); opacity: 1; }
-      }
-      @keyframes claudezilla-note-bob {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-1px); }
-      }
-      /* LOCKED COORDINATES - calibrated 2026-01-06, do not change */
-      .speech-bubble {
-        position: absolute !important;
-        top: 36px !important;
-        right: 32px !important;
-        left: auto !important;
-        bottom: auto !important;
-        margin: 0 !important;
-        width: 8px;
-        height: 8px;
-        background: #f5f5f4;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10;
-        opacity: 0;
-        transform: scale(0);
-        pointer-events: none;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.25);
-      }
-      .speech-bubble.singing {
-        opacity: 1;
-        transform: scale(1);
-        animation: claudezilla-bubble-pop 0.25s ease-out forwards;
-      }
-      .speech-bubble .note {
-        font-size: 7px;
-        color: #1a1a1a;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-        line-height: 1;
-        animation: claudezilla-note-bob 0.5s ease-in-out infinite;
-      }
-      .speech-bubble::after {
-        content: '';
-        position: absolute;
-        bottom: -2px;
-        left: -1px;
-        width: 0;
-        height: 0;
-        border: 3px solid transparent;
-        border-top-color: #f5f5f4;
-        transform: rotate(-45deg);
-      }
-    </style>
-    <div class="watermark-inner">
-      ${CLAUDE_LOGO_SVG}
-      <div class="speech-bubble">
-        <span class="note">♪</span>
-      </div>
-    </div>
-  `;
+  // SECURITY (AMO compliance): Build shadow DOM via DOM APIs instead of innerHTML
+  // assignment. Avoids UNSAFE_VAR_ASSIGNMENT lint warning even though all inputs
+  // are static. <style> uses textContent; SVG is parsed via DOMParser then imported.
+  const styleEl = document.createElement('style');
+  styleEl.textContent = WATERMARK_SHADOW_CSS;
+  watermarkShadow.appendChild(styleEl);
+
+  const innerDiv = document.createElement('div');
+  innerDiv.className = 'watermark-inner';
+
+  const svgDoc = new DOMParser().parseFromString(CLAUDE_LOGO_SVG, 'image/svg+xml');
+  innerDiv.appendChild(document.importNode(svgDoc.documentElement, true));
+
+  const bubbleDiv = document.createElement('div');
+  bubbleDiv.className = 'speech-bubble';
+  const noteSpan = document.createElement('span');
+  noteSpan.className = 'note';
+  noteSpan.textContent = '♪';  // ♪
+  bubbleDiv.appendChild(noteSpan);
+  innerDiv.appendChild(bubbleDiv);
+
+  watermarkShadow.appendChild(innerDiv);
 
   // Click to open extension popup
   watermarkElement.addEventListener('click', () => {
@@ -1124,6 +1142,13 @@ function evaluate(params) {
 
   if (!expression) {
     throw new Error('expression is required');
+  }
+
+  // SECURITY: firefox_evaluate is disabled by default. Users must opt in via the
+  // popup toggle (sets claudezilla.allowEvaluate = true in browser.storage.local).
+  // This gate is documented in SECURITY.md for AMO reviewers.
+  if (!settings.allowEvaluate) {
+    throw new Error('firefox_evaluate is disabled. Enable it from the Claudezilla popup (Settings → Allow JavaScript evaluation).');
   }
 
   // SECURITY: Limit expression length to prevent DoS
