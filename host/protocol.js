@@ -28,8 +28,13 @@ export async function readMessage() {
     return {};
   }
 
-  if (messageLength > 4 * 1024 * 1024 * 1024) {
-    throw new Error(`Message too large: ${messageLength} bytes`);
+  // Cap matches the MCP server's MAX_BUFFER_SIZE (10 MB). The native-messaging
+  // spec allows up to 4 GB ext→host, but no Claudezilla command produces or
+  // accepts payloads anywhere near that. Lowering the cap prevents a buggy or
+  // hostile extension build from forcing the host to pre-allocate huge buffers.
+  const MAX_INBOUND_BYTES = 10 * 1024 * 1024;
+  if (messageLength > MAX_INBOUND_BYTES) {
+    throw new Error(`Message too large: ${messageLength} bytes (max ${MAX_INBOUND_BYTES})`);
   }
 
   // Read message payload

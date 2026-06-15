@@ -22,9 +22,11 @@ import { getSocketPath, getAuthTokenPath } from '../host/ipc.js';
 const SOCKET_PATH = getSocketPath();
 const AUTH_TOKEN_FILE = getAuthTokenPath();
 
+// Log unhandled rejections without killing the MCP server mid-session.
+// A single missed .catch() (e.g. on a fire-and-forget setTimeout) previously
+// took down the whole process. Mirrors Node's pre-v15 default behavior.
 process.on('unhandledRejection', (reason) => {
   console.error('[claudezilla] Unhandled rejection:', reason);
-  process.exit(1);
 });
 
 /**
@@ -189,10 +191,17 @@ async function cleanupOrphanedAgents() {
   }
 }
 
-// Start periodic orphaned agent cleanup
+// Start periodic orphaned agent cleanup.
+// .unref() so the process can exit naturally when the stdio transport closes,
+// without this interval pinning the event loop open.
 const cleanupIntervalId = setInterval(() => {
   cleanupOrphanedAgents().catch(e => console.error('[claudezilla] Cleanup error:', e));
 }, CLEANUP_INTERVAL_MS);
+cleanupIntervalId.unref();
+
+// Pending fire-and-forget consent setTimeout handles. Tracked so handleShutdown
+// can cancel them and avoid racing against goodbye/exit.
+const pendingConsentTimers = new Set();
 
 /**
  * Run diagnostics on Claudezilla connection
@@ -1530,16 +1539,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     updateAgentHeartbeat(AGENT_ID);
     const response = await sendCommand(command, commandParams);
 
-    // Auto-trigger handleConsent if configured and navigation succeeded
+    // Auto-trigger handleConsent if configured and navigation succeeded.
+    // Track the timer so handleShutdown can cancel any pending fire-and-forget
+    // consent calls that would otherwise race against the goodbye/exit sequence.
     if (response.success && (name === 'firefox_navigate' || name === 'firefox_create_window')) {
       const config = agentConfig.get(AGENT_ID);
       if (config?.handleConsent) {
         const navigatedTabId = response.result?.tabId;
-        setTimeout(() => {
+        const timer = setTimeout(() => {
+          pendingConsentTimers.delete(timer);
+          if (isShuttingDown) return;
           sendCommand('handleConsent', { agentId: AGENT_ID, tabId: navigatedTabId }).catch(err => {
             console.error('[claudezilla] Auto-trigger handleConsent failed:', err.message);
           });
         }, 600);
+        pendingConsentTimers.add(timer);
       }
     }
 
@@ -1626,6 +1640,10 @@ function handleShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
   clearInterval(cleanupIntervalId);
+  // Cancel any pending fire-and-forget consent calls before they can race
+  // against the goodbye/exit sequence.
+  for (const timer of pendingConsentTimers) clearTimeout(timer);
+  pendingConsentTimers.clear();
   console.error(`[claudezilla] Received ${signal}, cleaning up...`);
   sendGoodbye().finally(() => process.exit(0));
 }

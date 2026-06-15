@@ -20,6 +20,10 @@ const NATIVE_HOST = 'claudezilla';
 
 let port = null;
 const pendingRequests = new Map();
+// Parallel map keyed by id holding each request's timeout handle so we can
+// clear it on response/disconnect instead of letting the closure live for
+// the full 150 s default per request.
+const pendingRequestTimers = new Map();
 
 /**
  * Check if private-only mode is enabled (default: true for backward compat)
@@ -409,11 +413,15 @@ function connect() {
       port = null;
       lastDisconnectReason = error;
 
-      // Reject all pending requests
+      // Reject all pending requests + cancel their timeout closures so the
+      // background page doesn't carry orphaned timers across reconnect cycles.
       for (const [id, { reject }] of pendingRequests) {
         reject(new Error('Native host disconnected: ' + error));
+        const timer = pendingRequestTimers.get(id);
+        if (timer) clearTimeout(timer);
       }
       pendingRequests.clear();
+      pendingRequestTimers.clear();
 
       // Start auto-reconnect timer (don't reconnect if this was initial connect failure)
       if (reconnectAttempt === 0) {
@@ -515,12 +523,14 @@ function sendToHost(command, params = {}) {
     const timeoutMs = (params._timeout && params._timeout >= 5000 && params._timeout <= 300000)
       ? params._timeout
       : DEFAULT_TIMEOUT_MS;
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      pendingRequestTimers.delete(id);
       if (pendingRequests.has(id)) {
         pendingRequests.delete(id);
         reject(new Error(`Request timed out after ${timeoutMs}ms (command: ${command})`));
       }
     }, timeoutMs);
+    pendingRequestTimers.set(id, timer);
 
     console.log('[claudezilla] Sending to host:', message);
     port.postMessage(message);
@@ -537,6 +547,11 @@ function handleHostMessage(message) {
   const pending = pendingRequests.get(id);
   if (pending) {
     pendingRequests.delete(id);
+    const timer = pendingRequestTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      pendingRequestTimers.delete(id);
+    }
     if (success) {
       pending.resolve(result);
     } else {
@@ -1555,8 +1570,17 @@ async function handleCliCommand(message) {
           }
         }
 
+        // Reserve the mutex synchronously *before* chaining the lock. Without
+        // this, two near-simultaneous requests can both see
+        // `screenshotMutexHolder === null` on the MUTEX_BUSY check above
+        // because the inner `.then` callback that sets the holder doesn't run
+        // until a microtask later. acquiredAt gets refreshed when the body
+        // actually starts executing, so MUTEX_BUSY heldFor remains accurate.
+        screenshotMutexHolder = { agentId, acquiredAt: Date.now(), requestId: screenshotRequestId };
+
         const screenshotPromise = screenshotLock.then(async () => {
-          // Acquire mutex - track holder
+          // Refresh acquiredAt to reflect when the capture actually begins,
+          // not when it was queued.
           screenshotMutexHolder = { agentId, acquiredAt: Date.now(), requestId: screenshotRequestId };
 
           try {

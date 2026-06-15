@@ -166,6 +166,10 @@ log('Script starting, cwd:', process.cwd());
 
 // Track pending requests from CLI
 const pendingCliRequests = new Map();
+// Parallel map keyed by id, holding each request's timeout handle so we can
+// clear it on response/close instead of letting the closure live for the
+// full 150 s default per request.
+const pendingRequestTimers = new Map();
 
 /**
  * Check if a given loop state has exceeded wall-clock timeout
@@ -312,12 +316,15 @@ function handleCliCommand(command, params, authToken, callback, socketRequests) 
   const timeoutMs = (params._timeout && params._timeout >= 5000 && params._timeout <= 300000)
     ? params._timeout
     : 150000;
-  setTimeout(() => {
+  const timer = setTimeout(() => {
+    pendingRequestTimers.delete(id);
     if (pendingCliRequests.has(id)) {
       pendingCliRequests.delete(id);
+      if (socketRequests) socketRequests.delete(id);
       callback({ success: false, error: `Request timed out after ${timeoutMs}ms (command: ${command})`, command, timeoutMs });
     }
   }, timeoutMs);
+  pendingRequestTimers.set(id, timer);
 
   // Send command to extension via native messaging
   log(`Forwarding CLI command to extension: ${command}`);
@@ -336,6 +343,11 @@ function handleExtensionMessage(message) {
   if (id && pendingCliRequests.has(id) && success !== undefined) {
     const callback = pendingCliRequests.get(id);
     pendingCliRequests.delete(id);
+    const timer = pendingRequestTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      pendingRequestTimers.delete(id);
+    }
     callback({ success, result, error });
     return;
   }
@@ -425,6 +437,11 @@ function startSocketServer() {
       // Clean up pending requests for this socket
       for (const reqId of socketRequests) {
         pendingCliRequests.delete(reqId);
+        const timer = pendingRequestTimers.get(reqId);
+        if (timer) {
+          clearTimeout(timer);
+          pendingRequestTimers.delete(reqId);
+        }
       }
       socketRequests.clear();
     });
@@ -536,5 +553,8 @@ process.on('SIGINT', () => {
 
 main().catch((error) => {
   log('Unhandled error:', error);
+  // Run cleanup before exiting so the socket file and auth-token file aren't
+  // left behind on crash (SIGTERM/SIGINT already cover the graceful paths).
+  try { cleanup(); } catch (e) { log('Cleanup during crash failed:', e); }
   process.exit(1);
 });
