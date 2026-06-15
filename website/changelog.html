@@ -13,7 +13,7 @@
   <meta property="og:url" content="https://claudezilla.com/changelog.html">
 
   <!-- Styles (fonts self-hosted, no Google dependency) -->
-  <link rel="stylesheet" href="/assets/styles.css?v=9">
+  <link rel="stylesheet" href="/assets/styles.css?v=11">
 
   <style>
     /* ── Changelog page styles ─────────────────────────────────── */
@@ -255,12 +255,353 @@
     <!-- Releases -->
     <div class="releases">
 
-      <!-- v0.5.9 -->
+      <!-- v0.6.5 -->
       <div class="release latest">
+        <div class="release-header">
+          <span class="release-version">v0.6.5</span>
+          <span class="release-date">2026-05-10</span>
+          <span class="release-badge">Latest</span>
+        </div>
+        <p class="release-tagline">Claude Code compatibility — closes the gap with upstream changes 2.1.129 → 2.1.138</p>
+
+        <div class="change-section">
+          <h3>Compatibility</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Session-scoped loop state</strong>
+                <span class="detail">Loop state in the native host is now keyed by <code>CLAUDE_CODE_SESSION_ID</code> (Claude Code 2.1.132+). Concurrent Claude Code sessions on the same machine no longer collide on a single <code>/focus</code> loop. Sessions without an ID fall back to a single <code>__default__</code> bucket, preserving pre-v0.6.5 behavior.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Activation recovery on <code>/clear</code></strong>
+                <span class="detail">When Claude Code reloads the MCP server after <code>/clear</code>, the gateway tool was previously the only thing visible, and the agent's first call to a known <code>firefox_*</code> tool would hard-fail with <code>ACTIVATION_REQUIRED</code>. The MCP server now auto-activates the matching category, emits <code>notifications/tools/list_changed</code>, and proceeds with the call transparently.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Stop hook hardening for 2.1.136+ lifecycle</strong>
+                <span class="detail"><code>plugin/hooks/stop-hook.sh</code> now bounds every socket round-trip with <code>nc -w 2</code>, validates JSON shape before parsing, and forwards the Claude Code session ID. The hook can no longer hang Claude Code's exit path on a stuck socket.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-chore">chore</span>
+              <div class="change-text">
+                <strong>Plugin marketplace metadata</strong>
+                <span class="detail"><code>plugin/.claude-plugin/plugin.json</code> bumped to v0.2.0 with <code>homepage</code>, <code>bugs</code>, and <code>license</code> fields populated for installation via Claude Code's <code>--plugin-url</code> flag (added in 2.1.129).</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- v0.6.4 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.6.4</span>
+          <span class="release-date">2026-03-31</span>
+        </div>
+        <p class="release-tagline">Supply chain hardening — closes ignore-scripts gap, hardens auth, upgrades MCP SDK</p>
+
+        <div class="change-section">
+          <h3>Security Fixes</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-chore">security</span>
+              <div class="change-text">
+                <strong>Block dependency lifecycle scripts</strong>
+                <span class="detail">Added <code>ignore-scripts=true</code> to root <code>.npmrc</code> and per-workspace <code>.npmrc</code> files for <code>mcp/</code> and <code>worker/</code>. Prevents postinstall hook execution — the primary supply-chain attack vector.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-chore">security</span>
+              <div class="change-text">
+                <strong>Harden install scripts</strong>
+                <span class="detail">Added <code>--ignore-scripts</code> flag to <code>npm install</code> in <code>install-macos.sh</code>, <code>install-linux.sh</code>, and the <code>windows-test.yml</code> CI workflow. User-facing install paths were previously unprotected.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-chore">security</span>
+              <div class="change-text">
+                <strong>Timing-safe auth comparison</strong>
+                <span class="detail">Replaced <code>!==</code> string comparison with <code>crypto.timingSafeEqual()</code> for socket auth token validation in the native host.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-chore">security</span>
+              <div class="change-text">
+                <strong>Explicit Content Security Policy</strong>
+                <span class="detail">Added <code>content_security_policy</code> to <code>extension/manifest.json</code> (defense-in-depth over the MV2 default).</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="change-section">
+          <h3>Improvements</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Graceful private mode handling</strong>
+                <span class="detail"><code>firefox_create_window</code> now auto-falls back to non-private mode when Firefox incognito permission isn't granted, instead of hard-failing. Response includes <code>isPrivate</code>, <code>privateFallback</code>, and <code>modeWarning</code> fields so agents always know the actual mode.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>New <code>firefox_get_window_mode</code> command</strong>
+                <span class="detail">Lightweight query for current window state and private mode capability. Pairs with <code>firefox_create_window</code>'s new <code>private</code> parameter, which returns a structured <code>MODE_MISMATCH</code> error if the existing shared window's mode conflicts.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-chore">chore</span>
+              <div class="change-text">
+                <strong>Upgraded <code>@modelcontextprotocol/sdk</code> 1.25.2 → 1.29.0</strong>
+                <span class="detail">Patches GHSA-345p-7cg4-v4c7 (cross-client data leak via shared server/transport). Claudezilla uses stdio transport (1:1 pipe), so was not exploitable in our architecture, but upgraded for hygiene.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- v0.6.3 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.6.3</span>
+          <span class="release-date">2026-03-27</span>
+        </div>
+        <p class="release-tagline">Critical fix: native host fails to start on macOS (and Linux with non-standard node paths)</p>
+
+        <div class="change-section">
+          <h3>Bug Fixes</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Native host PATH resolution</strong>
+                <span class="detail">Firefox (GUI app) doesn't inherit shell PATH, so <code>#!/usr/bin/env node</code> failed with exit 127 when Node.js is installed via Homebrew (<code>/opt/homebrew/bin</code>), nvm, or any non-system path. Installer now resolves the absolute node path at install time and writes a <code>host/run.sh</code> wrapper with <code>exec /absolute/path/to/node</code>. Affects both macOS and Linux installers.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Dead <code>browserAction.onClicked</code> listener</strong>
+                <span class="detail">Removed listener that never fires because <code>default_popup</code> is defined in the manifest. Reconnection already handled by <code>sendToHost()</code> calling <code>connect()</code> when <code>port</code> is null.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- v0.6.2 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.6.2</span>
+          <span class="release-date">2026-03-24</span>
+        </div>
+        <p class="release-tagline">Socket path reliability + Windows native messaging — community contributions</p>
+
+        <div class="change-section">
+          <h3>Bug Fixes</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Socket path consistency on macOS</strong>
+                <span class="detail"><code>getSafeTempDir()</code> now falls back to <code>~/.claudezilla/</code> (mode 0700) between XDG_RUNTIME_DIR and tmpdir(). Fixes socket path mismatch when macOS assigns different per-process TMPDIR values to Firefox vs Claude Desktop.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>CLI socket path</strong>
+                <span class="detail"><code>host/cli.js</code> now uses <code>getSocketPath()</code> and <code>getAuthTokenPath()</code> from <code>ipc.js</code> instead of hardcoded <code>/tmp/claudezilla.sock</code>.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Stop hook socket fallback</strong>
+                <span class="detail"><code>plugin/hooks/stop-hook.sh</code> now mirrors the full 3-tier fallback (XDG &gt; <code>~/.claudezilla/</code> &gt; TMPDIR) matching the Node.js <code>ipc.js</code> logic.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Windows native messaging</strong>
+                <span class="detail">Installer creates a <code>host.bat</code> wrapper instead of using the non-spec <code>args</code> manifest field. Fixes silent connection failure on Windows.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- v0.6.1 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.6.1</span>
+          <span class="release-date">2026-03-22</span>
+        </div>
+        <p class="release-tagline">Linux support + reliability/security audit + lazy tool loading + consent automation</p>
+
+        <div class="change-section">
+          <h3>Features</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Lazy tool loading — ~6,400 token savings per session</strong>
+                <span class="detail"><code>firefox_activate</code> gateway tool: at session start, only this single tool (~50 tokens) is exposed instead of all 31 tools (~6,529 tokens). Tools organized into 8 categories (<code>core</code>, <code>inspection</code>, <code>devtools</code>, <code>multiagent</code>, <code>loop</code>, <code>config</code>, <code>diagnose</code>, <code>all</code>). Call <code>firefox_activate()</code> to load the default <code>core</code> category, or pass a specific subset. Server emits <code>notifications/tools/list_changed</code> so Claude Code updates its tool list immediately.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Consent form automation</strong>
+                <span class="detail">New <code>firefox_handle_consent</code> MCP tool automatically detects and dismisses cookie/GDPR overlays via 4-pass strategy: CMP selectors (Google, OneTrust, Quantcast, Didomi, Cookiebot), text matching ("I agree", "Accept all"), shallow Shadow DOM traversal, and <code>[role="dialog"]</code> ARIA fallback. Can be enabled per-agent via <code>firefox_set_config({ handleConsent: true })</code> to trigger fire-and-forget after every navigation.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Linux support</strong>
+                <span class="detail">Portable shebang (<code>#!/usr/bin/env node</code> instead of hardcoded Homebrew path) and <code>install-linux.sh</code> installer that runs <code>npm install</code> in <code>mcp/</code>.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="change-section">
+          <h3>Reliability &amp; Security Audit</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Socket listener cleanup (MCP)</strong>
+                <span class="detail"><code>sendCommandOnce</code> now calls <code>socket.removeAllListeners()</code> + <code>socket.destroy()</code> on every resolve/reject path. Previously, <code>data</code>/<code>error</code>/<code>timeout</code>/<code>close</code> listeners accumulated over many commands causing FD leaks.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Connection limit + per-socket request tracking (host)</strong>
+                <span class="detail"><code>server.maxConnections = 10</code> prevents FD exhaustion under DoS. Each socket tracks its pending request IDs in a <code>Set</code>; on socket close, all associated entries are removed from <code>pendingCliRequests</code> to prevent memory leaks on abrupt disconnect.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-chore">security</span>
+              <div class="change-text">
+                <strong>Domain pattern ReDoS prevention</strong>
+                <span class="detail"><code>checkDomainAllowed</code> now validates each domain pattern before constructing a regex: max 255 chars, only <code>[a-zA-Z0-9*.\-]</code> characters allowed. Pathological wildcard patterns previously could cause catastrophic backtracking.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-chore">security</span>
+              <div class="change-text">
+                <strong><code>icacls</code> command injection fix (Windows)</strong>
+                <span class="detail"><code>host/ipc.js</code> replaced <code>exec()</code> shell invocation with <code>execFile('icacls', [...args])</code> array form, eliminating shell interpretation of file paths containing quotes or special characters.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Screenshot mutex finally block</strong>
+                <span class="detail"><code>screenshotMutexHolder = null</code> is now inside a <code>finally</code> block, ensuring the mutex is always released even if the screenshot throws. Previously a mid-flight exception would leave the mutex permanently held.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- v0.6.0 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.6.0</span>
+          <span class="release-date">2026-03-06</span>
+        </div>
+        <p class="release-tagline">Annotated screenshots, domain allowlists, smarter waiting, page state diffing</p>
+
+        <div class="change-section">
+          <h3>Features</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Annotated screenshots</strong>
+                <span class="detail"><code>firefox_screenshot</code> with <code>annotate: true</code> overlays numbered badges on every interactive element (buttons, links, inputs, form controls) using Shadow DOM isolation. The response includes a <code>labels</code> map keyed by badge number so agents can reference elements by number in follow-up commands. Badges are injected, the screenshot captured, and badges removed in one atomic sequence — no visual artifacts persist on the page.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Domain allowlist</strong>
+                <span class="detail">Agents can restrict their own navigation to approved domains via <code>firefox_set_config({ allowedDomains: ["*.example.com", "docs.stripe.com"] })</code>. Supports exact matches and wildcard prefixes. Any <code>createWindow</code> or <code>navigate</code> call to an unapproved domain returns a <code>DOMAIN_BLOCKED</code> error. Opt-in per agent — no global config changes.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Expanded <code>waitFor</code></strong>
+                <span class="detail"><code>firefox_wait_for</code> now supports three modes: <code>selector</code> (CSS selector — existing behavior), <code>text</code> (substring match on visible page text), and <code>url</code> (glob match on <code>window.location.href</code> — useful for waiting on redirects or SPA navigation).</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Page state diff</strong>
+                <span class="detail"><code>firefox_diff_page_state</code> takes two snapshots (from <code>firefox_get_page_state</code>) and returns structured diffs: added/removed/changed headings, links, buttons, and form fields. Runs entirely in the MCP server with no extension round-trip needed — useful for verifying that a click or form submission actually changed the page.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="change-section">
+          <h3>Bug Fixes</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Orphan tab timeout increased</strong>
+                <span class="detail">Changed from 2 minutes to 10 minutes. The previous threshold caused false positives during long-running operations (large page screenshots, complex <code>waitFor</code> chains), incorrectly cleaning up active agents' tabs.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Screenshot watermark hidden during capture</strong>
+                <span class="detail">The Claudezilla watermark and focus glow effects are now hidden during <code>captureVisibleTab</code> and restored after, eliminating visual artifacts in screenshots.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong><code>CONTENT_SCRIPT_ERROR</code> false positives</strong>
+                <span class="detail">JSON, XML, PDF, and binary tabs no longer trigger content script injection errors. The extension now checks the tab's content type before attempting <code>sendMessage</code> and returns a descriptive <code>NON_HTML_TAB</code> error instead.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Network header stripping</strong>
+                <span class="detail"><code>getNetworkRequests</code> no longer includes raw request/response headers in the payload, reducing response size by ~60% for header-heavy pages.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <hr class="release-divider">
+
+      <!-- v0.5.9 -->
+      <div class="release">
         <div class="release-header">
           <span class="release-version">v0.5.9</span>
           <span class="release-date">2026-03-04</span>
-          <span class="release-badge">Latest</span>
         </div>
         <p class="release-tagline">Tab state bug fixes — eliminates stale-tab loops and session nukes</p>
 
