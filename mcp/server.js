@@ -29,6 +29,19 @@ const MCP_VERSION = JSON.parse(
 const SOCKET_PATH = getSocketPath();
 const AUTH_TOKEN_FILE = getAuthTokenPath();
 
+// Claude Code 2.1.154+ passes the resumed session ID as `--resume <id>` when
+// re-spawning the stdio MCP server (in addition to CLAUDE_CODE_SESSION_ID env).
+// Parse once at startup; getClaudeCodeSessionId() prefers this over env so
+// loop state buckets stay correlated across /clear and process restarts.
+const CLI_SESSION_ID = (() => {
+  const i = process.argv.indexOf('--resume');
+  if (i === -1 || i + 1 >= process.argv.length) return undefined;
+  const v = process.argv[i + 1];
+  if (typeof v !== 'string' || !v || v.length > 128) return undefined;
+  if (!/^[A-Za-z0-9_\-:.]+$/.test(v)) return undefined;
+  return v;
+})();
+
 // Log unhandled rejections without killing the MCP server mid-session.
 // A single missed .catch() (e.g. on a fire-and-forget setTimeout) previously
 // took down the whole process. Mirrors Node's pre-v15 default behavior.
@@ -72,14 +85,16 @@ const agentConfig = new Map(); // agentId -> { allowedDomains: [...], handleCons
 
 /**
  * Resolve the Claude Code session ID for loop scoping.
- * Claude Code 2.1.132+ exports CLAUDE_CODE_SESSION_ID into Bash subprocesses
- * and (for stdio MCP servers) into the spawned MCP process. Older Claude Code
- * versions don't set it; we fall back so the host buckets us under DEFAULT_SESSION
- * (preserves pre-v0.6.5 behavior).
+ *
+ * Lookup order:
+ *   1. `--resume <id>` CLI arg (Claude Code 2.1.154+ passes on resume)
+ *   2. CLAUDE_CODE_SESSION_ID env var (2.1.132+)
+ *   3. undefined → host buckets us under DEFAULT_SESSION (pre-v0.6.5 behavior)
  *
  * @returns {string|undefined} session ID, or undefined when unavailable
  */
 function getClaudeCodeSessionId() {
+  if (CLI_SESSION_ID) return CLI_SESSION_ID;
   const v = process.env.CLAUDE_CODE_SESSION_ID;
   if (typeof v !== 'string' || !v) return undefined;
   if (v.length > 128) return undefined;

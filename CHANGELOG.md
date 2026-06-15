@@ -32,9 +32,15 @@ Maintenance release closing a backlog of stability bugs, AMO lint warnings, and 
 - **Marketing site SEO + headers** — Added favicon links, `robots.txt`, `sitemap.xml`, self-hosted Mozilla install badge (was loading from `blog.mozilla.org` — contradicted the zero-telemetry copy). `_headers` adds HSTS, CSP (`script-src 'self'`, `connect-src 'self' https://api.claudezilla.com`), Permissions-Policy, immutable cache headers for `/assets/*` and `/fonts/*`. Inline `<script>` extracted to `scripts/thanks-modal.js`.
 - **Website changelog backfill** — Six release entries (v0.6.0 → v0.6.5) backfilled into `website/changelog.html`. Hero badge refreshed.
 
+### Compatibility (Claude Code 2.1.139 → 2.1.176)
+
+- **`--resume <sessionId>` parameter** — Claude Code 2.1.154+ passes the resumed session ID as a CLI arg to spawned stdio MCP servers (in addition to `CLAUDE_CODE_SESSION_ID` env). The MCP server now parses this at startup and prefers it over the env var so focus-loop buckets stay correlated across `/clear` and process restarts. Falls back to env var on older Claude Code versions.
+- **New 2.1.x surfaces noted but out of scope for v0.6.6:** `post-session` hook (2.1.152), `MessageDisplay` hook (2.1.145), `SessionStart.reloadSkills` (2.1.141), `background_tasks`/`session_crons` fields in Stop hook input (2.1.152), `terminalSequence` hook output (2.1.141). The `effort.level` and `<promise>` stop-hook handling deferred from v0.6.5 remain deferred — they need design work, not a maintenance bump.
+
 ### Tooling
 
 - **`engines` field** added to `host/package.json` and `mcp/package.json` (`node >=18.17`).
+- **`host/.npmrc`** added with `ignore-scripts=true` for parity with root/mcp/worker (host had zero deps in v0.6.4 when the hardening landed, but now has lockfile + engines field and could grow deps).
 - **Version centralization** — `host/index.js` and `mcp/server.js` now read version from their `package.json` via `import.meta.url`; `extension/background.js` reads from `browser.runtime.getManifest().version`. No more drift between hardcoded strings.
 - **`web-ext` bumped 9.2.0 → 10.4.0.**
 - **Test seed** — `tests/*.test.mjs` added with `node --test` coverage of `host/protocol.js` framing + `host/ipc.js` path validation. Run via `pnpm test`. No test framework dependency.
