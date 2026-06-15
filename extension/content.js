@@ -1819,49 +1819,6 @@ async function resizeImage(params) {
 }
 
 /**
- * Handle messages from background script
- */
-browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const { action, params } = message;
-
-  // Ensure visuals are initialized on any Claudezilla command (lazy init)
-  if (!watermarkElement && action !== 'enableClaudezillaVisuals') {
-    initVisuals();
-  }
-
-  // Trigger electron animation on any command (Claude is working)
-  triggerElectrons();
-
-  // Handle async actions
-  (async () => {
-    try {
-      let result;
-
-      switch (action) {
-        case 'enableClaudezillaVisuals':
-          // This tab is now a Claudezilla-controlled tab - show visuals
-          initVisuals();
-          result = { enabled: true };
-          break;
-
-        case 'getContent':
-          result = getContent(params);
-          break;
-
-        case 'click':
-          result = await click(params);
-          break;
-
-        case 'type':
-          result = await type(params);
-          break;
-
-        case 'getConsoleLogs':
-          result = getConsoleLogs(params);
-          break;
-
-
-/**
  * Annotate interactive elements with numbered badges for vision models
  * Uses Shadow DOM to avoid polluting page CSS
  * @param {object} params
@@ -2131,6 +2088,48 @@ async function handleConsent(params = {}) {
     elapsed: Date.now() - startTime,
   };
 }
+
+/**
+ * Handle messages from background script
+ */
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const { action, params } = message;
+
+  // Ensure visuals are initialized on any Claudezilla command (lazy init)
+  if (!watermarkElement && action !== 'enableClaudezillaVisuals') {
+    initVisuals();
+  }
+
+  // Trigger electron animation on any command (Claude is working)
+  triggerElectrons();
+
+  // Handle async actions
+  (async () => {
+    try {
+      let result;
+
+      switch (action) {
+        case 'enableClaudezillaVisuals':
+          // This tab is now a Claudezilla-controlled tab - show visuals
+          initVisuals();
+          result = { enabled: true };
+          break;
+
+        case 'getContent':
+          result = getContent(params);
+          break;
+
+        case 'click':
+          result = await click(params);
+          break;
+
+        case 'type':
+          result = await type(params);
+          break;
+
+        case 'getConsoleLogs':
+          result = getConsoleLogs(params);
+          break;
 
         case 'hideWatermark':
           if (watermarkElement) watermarkElement.style.opacity = '0';
