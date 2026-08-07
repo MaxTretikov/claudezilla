@@ -1267,6 +1267,20 @@ async function handleCliCommand(message) {
           throw new Error('agentId is required for tab close operations');
         }
 
+        // Attached USER tabs may be closed by the agent that attached them
+        // (explicit user-delegated action, e.g. "close that tab for me").
+        if (isAttachedTab(closeTabId)) {
+          const att = attachedTabs.get(closeTabId);
+          if (att.ownerId !== 'unknown' && att.ownerId !== agentId) {
+            throw new Error(`OWNERSHIP: Attached tab ${closeTabId} was attached by ${att.ownerId}. You (${agentId}) cannot close it.`);
+          }
+          attachedTabs.delete(closeTabId);
+          await persistAttachedTabs();
+          await browser.tabs.remove(closeTabId);
+          result = { closed: true, tabId: closeTabId, attached: true, message: 'Attached user tab closed.' };
+          break;
+        }
+
         if (!claudezillaWindow) {
           throw new Error('No Claudezilla window active');
         }
