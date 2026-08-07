@@ -256,12 +256,68 @@
     <!-- Releases -->
     <div class="releases">
 
-      <!-- v0.6.6 -->
+      <!-- v0.6.7 -->
       <div class="release latest">
+        <div class="release-header">
+          <span class="release-version">v0.6.7</span>
+          <span class="release-date">2026-08-07</span>
+          <span class="release-badge">Latest</span>
+        </div>
+        <p class="release-tagline">Community contributions — tab attach, window persistence, screenshot save-to-disk</p>
+
+        <div class="change-section">
+          <h3>New Features</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>Attach existing tabs in place</strong>
+                <span class="detail">Three new MCP tools — <code>firefox_list_all_tabs</code>, <code>firefox_attach_tab</code>, <code>firefox_detach_tab</code> — let an agent explicitly take control of a tab you already have open, instead of always opening a new one. Requires an explicit attach call; nothing is ever taken over automatically.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong>"Reuse current window" popup toggle</strong>
+                <span class="detail">Claudezilla can now attach to your currently-focused window instead of always opening a dedicated automation window. On by default; toggle it off in the popup's new Window section.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-feat">feat</span>
+              <div class="change-text">
+                <strong><code>firefox_screenshot</code> save-to-disk</strong>
+                <span class="detail">Optional <code>savePath</code> parameter writes the captured screenshot directly to disk.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="change-section">
+          <h3>Fixes</h3>
+          <ul class="change-list">
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Screenshot mutex could wedge permanently after a failure</strong>
+                <span class="detail">A single failed screenshot could leave every subsequent screenshot in the session failing with a stale error until the extension was reloaded. Fixed at the root cause in the mutex chain.</span>
+              </div>
+            </li>
+            <li class="change-item">
+              <span class="change-tag tag-fix">fix</span>
+              <div class="change-text">
+                <strong>Claudezilla windows accumulating across restarts</strong>
+                <span class="detail">Window state now persists across background restarts, so the extension reuses your existing automation window instead of spawning duplicates.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- v0.6.6 -->
+      <div class="release">
         <div class="release-header">
           <span class="release-version">v0.6.6</span>
           <span class="release-date">2026-06-15</span>
-          <span class="release-badge">Latest</span>
         </div>
         <p class="release-tagline">Stability, security, and AMO compliance — no new MCP tools</p>
 

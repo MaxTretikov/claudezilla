@@ -1,7 +1,37 @@
 # CLZ002 Changelog
 
 **Project:** Claudezilla
-**Current Version:** 0.6.6
+**Current Version:** 0.6.7
+
+## v0.6.7 (2026-08-07)
+
+**Community contributions — tab attach, window persistence, screenshot save-to-disk.**
+
+Four community/owner pull requests reviewed and merged after a manual diff-level security pass (this repo has no CI; see CLZ023 for the full review). One competing PR was evaluated and declined in favor of a safer alternative already in this release.
+
+### New Features
+
+- **`firefox_screenshot` `savePath` option** — Optional `savePath` parameter writes the captured screenshot to disk at an absolute path, returning `{ savedPath }` alongside the inline image. Validated entirely at the MCP layer (null-byte rejection, path traversal rejection, `.jpg`/`.jpeg`/`.png` extension allowlist) and never forwarded to the extension. Ported from a contributor fork (credit: @mtxr). (#8)
+- **Attach existing tabs in place** — Three new MCP tools, `firefox_list_all_tabs`, `firefox_attach_tab`, `firefox_detach_tab`, let an agent explicitly request control of a tab the user already has open instead of always spawning a new agent-owned tab. Implemented as a separate `attachedTabs` tracking map (distinct from the managed tab pool), persisted across background restarts, with dead-tab and managed-pool-collision cleanup on restore. Reaching this capability requires an explicit, agent-initiated `firefox_attach_tab(tabId)` call following a `firefox_list_all_tabs` discovery step. (#14, contributed by @sinkr)
+- **"Reuse current window" popup toggle** — `firefox_create_window` now defaults to attaching the agent's tab to the user's currently-focused window instead of always spawning a dedicated Claudezilla window (bundled in #14). Previously an undocumented `storage.local.adoptCurrentWindow` flag with no UI; now a visible toggle in the popup's new **Window** section (on by default, matching prior behavior).
+
+### Fixes
+
+- **Screenshot mutex permanently wedging after a failure** — After any single `firefox_screenshot` failure, the internal `screenshotLock` serialization chain remained permanently rejected, causing every subsequent screenshot in the session to fail with a stale "Tab session lost" error until the extension was reloaded. Root cause: the mutex chain's `.catch` handler re-threw, leaving that link of the chain itself rejected; since `screenshotLock.then(body)` only runs on fulfillment, a rejected chain silently skipped every future request's body. Fix swallows the error on the internal lock-chain copy only — the caller still gets the real error via the separately-awaited `screenshotPromise`. (#11, closes #10, contributed by @Vadiml1024)
+- **Claudezilla windows accumulating across background restarts** — `claudezillaWindow` tracking previously lived only in background-script memory, so any background restart (browser restart, extension update, MV2 event-page suspension) wiped the tracker while the real browser window survived; the next `createWindow` call then spawned a sibling window instead of reusing it. Window/tab state is now persisted to `storage.local` after every command (success and error paths) and on removal events; on startup, the surviving window is adopted from storage and validated, and any leftover duplicate Claudezilla windows are swept — conservatively, only when every tab in the window belongs to the tracked "Claudezilla" tab group. (#13, contributed by @sinkr)
+
+### Declined
+
+- **Drag-to-attach (PR #12)** — A second contributor PR proposed the same "attach an existing tab" capability via `tabs.onAttached`/`onDetached` listeners triggered by a raw drag-and-drop gesture. Evaluated alongside #14: both reuse the same underlying mechanism to make a tab fully drivable by any connected agent (including arbitrary JS via `evaluate`), but #12's trigger was an unconfirmed human gesture (any tab dragged in, intentionally or not, becomes immediately automatable) versus #14's explicit, agent-initiated `firefox_attach_tab` call. Declined in favor of #14's stronger trust boundary; closed with a comment crediting @Vadiml1024 and explaining the decision.
+
+### Bumps
+
+- Version `0.6.6` → `0.6.7` across `package.json`, `host/package.json`, `mcp/package.json`, `extension/manifest.json`, `extension/popup/popup.html`, `CLAUDE.md`, `README.md` badge, `website/extension.html` hero tagline. Plugin manifest unchanged (independent semver, still 0.2.0).
+
+### References
+
+- [1] `docs/clz/CLZ023 v0.6.7 Community Contributions Review.md` — full pre-merge review, security analysis, and merge-order rationale for all 5 PRs.
+- [2] `docs/clz/CLZ024 v0.6.7 Release Reference.md` — post-merge audit findings and file-level change summary.
 
 ## v0.6.6 (2026-06-15)
 

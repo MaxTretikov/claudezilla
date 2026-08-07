@@ -2,7 +2,7 @@
 
 **Browser automation for Claude Code that runs on Firefox** — for systems where Chrome is unavailable, unwelcome, or policy-prohibited.
 
-[![Version](https://img.shields.io/badge/version-0.6.6-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.7-blue.svg)](./CHANGELOG.md)
 
 The only Firefox-native MCP server for Claude Code. Navigate, automate, screenshot, and extract data on any system that runs Firefox — no Chrome dependency, no Google infrastructure.
 
@@ -87,6 +87,8 @@ Claude, get all the links on this page
 - `firefox_press_key` — Keyboard events (Enter, Tab, shortcuts)
 - `firefox_screenshot` — Capture viewport (supports annotated mode)
 - `firefox_get_tabs` / `firefox_close_tab` — Manage tabs
+- `firefox_list_all_tabs` — List all open tabs, including ones not yet under Claudezilla's control
+- `firefox_attach_tab` / `firefox_detach_tab` — Attach to (or release) a tab the user already has open, driving it in place instead of opening a new one
 
 ### Configuration
 - `firefox_activate` — Load tool categories on demand (lazy loading saves ~6K tokens)
