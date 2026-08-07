@@ -1,13 +1,19 @@
 # CLZ002 Changelog
 
 **Project:** Claudezilla
-**Current Version:** 0.6.7
+**Current Version:** 0.6.9
 
-## v0.6.7 (2026-08-07)
+## v0.6.9 (2026-08-07)
 
 **Community contributions — tab attach, window persistence, screenshot save-to-disk.**
 
 Four community/owner pull requests reviewed and merged after a manual diff-level security pass (this repo has no CI; see CLZ023 for the full review). One competing PR was evaluated and declined in favor of a safer alternative already in this release.
+
+**Version note:** developed and tested as 0.6.7; republished as 0.6.9 to resolve an AMO version-numbering conflict prior to submission. No functional difference from 0.6.7 beyond the popup layout fix below — 0.6.8 was never released.
+
+### Popup UI fix
+
+- **Popup no longer scrolls** — The "Reuse current window" toggle (added below) initially shipped as its own titled section, pushing total popup content past Firefox's popup panel height cap and forcing a vertical scrollbar with the support footer clipped below the fold. Folded the toggle into the existing Performance section and explicitly suppressed `overflow` on `html`/`body` (Firefox was reserving scrollbar space even where content fit). All sections, including the support footer, are now fully visible with no scroll.
 
 ### New Features
 
@@ -26,7 +32,7 @@ Four community/owner pull requests reviewed and merged after a manual diff-level
 
 ### Bumps
 
-- Version `0.6.6` → `0.6.7` across `package.json`, `host/package.json`, `mcp/package.json`, `extension/manifest.json`, `extension/popup/popup.html`, `CLAUDE.md`, `README.md` badge, `website/extension.html` hero tagline. Plugin manifest unchanged (independent semver, still 0.2.0).
+- Version `0.6.6` → `0.6.9` across `package.json`, `host/package.json`, `mcp/package.json`, `extension/manifest.json`, `extension/popup/popup.html`, `CLAUDE.md`, `README.md` badge, `website/extension.html` hero tagline. Plugin manifest unchanged (independent semver, still 0.2.0).
 
 ### References
 
