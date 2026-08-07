@@ -1,20 +1,20 @@
 {
   "manifest_version": 2,
   "name": "Claudezilla",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Browser automation for Claude Code via Firefox. No Chrome, no telemetry. Navigate, screenshot, click, type, extract data via MCP.",
   "author": "Chris Lyons <support@boot.industries>",
-
   "browser_specific_settings": {
     "gecko": {
       "id": "claudezilla@boot.industries",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   },
-
   "permissions": [
     "nativeMessaging",
     "tabs",
@@ -23,30 +23,31 @@
     "webRequest",
     "storage"
   ],
-
   "background": {
-    "scripts": ["background.js"],
+    "scripts": [
+      "background.js"
+    ],
     "persistent": true
   },
-
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }
   ],
-
   "browser_action": {
     "default_icon": "icons/claudezilla-48.svg",
     "default_title": "Claudezilla",
     "default_popup": "popup/popup.html"
   },
-
   "icons": {
     "48": "icons/claudezilla-48.svg"
   },
-
   "content_security_policy": "script-src 'self'; object-src 'self'"
 }

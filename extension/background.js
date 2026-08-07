@@ -77,7 +77,8 @@ function persistWindowState() {
         tabs: claudezillaWindow.tabs,
         createdAt: claudezillaWindow.createdAt,
         groupId: claudezillaWindow.groupId ?? null,
-        isPrivate: claudezillaWindow.isPrivate
+        isPrivate: claudezillaWindow.isPrivate,
+        adopted: !!claudezillaWindow.adopted
       }
     : null;
   browser.storage.local.set({ [WINDOW_STATE_KEY]: payload }).catch(() => {});
@@ -93,19 +94,23 @@ async function restoreWindowState() {
     if (!saved) return;
     const win = await browser.windows.get(saved.windowId, { populate: true }).catch(() => null);
     if (!win) { persistWindowState(); return; } // window really gone — clear stale state
-    // Rebuild tab list: keep saved entries whose tabs still exist, adopt any
-    // untracked tabs in the window (created just before an unpersisted crash).
+    // Rebuild tab list: keep saved entries whose tabs still exist. Only a
+    // dedicated (non-adopted) Claudezilla window may absorb untracked tabs as
+    // orphans — in an ADOPTED user window every untracked tab is the USER'S.
     const liveIds = new Set(win.tabs.map(t => t.id));
     const tabs = (saved.tabs || []).filter(t => liveIds.has(t.tabId));
-    for (const t of win.tabs) {
-      if (!tabs.some(x => x.tabId === t.id)) tabs.push({ tabId: t.id, ownerId: 'orphan:pre-restart' });
+    if (!saved.adopted) {
+      for (const t of win.tabs) {
+        if (!tabs.some(x => x.tabId === t.id)) tabs.push({ tabId: t.id, ownerId: 'orphan:pre-restart' });
+      }
     }
     claudezillaWindow = {
       windowId: saved.windowId,
       tabs,
       createdAt: saved.createdAt || Date.now(),
       groupId: saved.groupId ?? null,
-      isPrivate: win.incognito
+      isPrivate: saved.adopted ? false : win.incognito,
+      adopted: !!saved.adopted
     };
     activeTabId = tabs.length ? tabs[tabs.length - 1].tabId : null;
     console.log(`[claudezilla] Adopted surviving window ${saved.windowId} (${tabs.length} tab(s)) after background restart`);
@@ -1002,32 +1007,61 @@ async function handleCliCommand(message) {
           activeTabId = tabId;
 
         } else {
-          // No window - create new window (private by default)
+          // No window tracked. Preferred mode: ADOPT the user's last-focused
+          // normal window and open the agent tab there (still group-tagged and
+          // owner-tracked), instead of spawning a separate Claudezilla window.
+          // Opt out via storage.local { adoptCurrentWindow: false }.
           isNewWindow = true;
           const usePrivate = typeof requestedPrivate === 'boolean' ? requestedPrivate : await isPrivateModeRequired();
           let win;
+          let adoptedWindow = false;
 
-          try {
-            win = await browser.windows.create({
-              incognito: usePrivate,
-              focused: false,
-              url: url || 'about:blank'
+          if (!usePrivate) {
+            try {
+              const adoptPref = await browser.storage.local.get('adoptCurrentWindow');
+              if (adoptPref.adoptCurrentWindow !== false) {
+                const lastFocused = await browser.windows.getLastFocused({ windowTypes: ['normal'] });
+                if (lastFocused && !lastFocused.incognito) {
+                  win = lastFocused;
+                  adoptedWindow = true;
+                  isNewWindow = false;
+                }
+              }
+            } catch (e) {
+              console.log('[claudezilla] Window adoption unavailable, creating window:', e.message);
+            }
+          }
+
+          if (adoptedWindow) {
+            const newTab = await browser.tabs.create({
+              windowId: win.id,
+              url: url || 'about:blank',
+              active: false
             });
-          } catch (e) {
-            // Auto-fallback: if private was requested but permission denied, retry non-private
-            if (usePrivate && (e.message?.includes('incognito') || e.message?.includes('private') || e.message?.includes('permission'))) {
-              privateFallback = true;
-              console.log('[claudezilla] Private window failed, falling back to non-private:', e.message);
+            tabId = newTab.id;
+          } else {
+            try {
               win = await browser.windows.create({
-                incognito: false,
+                incognito: usePrivate,
                 focused: false,
                 url: url || 'about:blank'
               });
-            } else {
-              throw e;
+            } catch (e) {
+              // Auto-fallback: if private was requested but permission denied, retry non-private
+              if (usePrivate && (e.message?.includes('incognito') || e.message?.includes('private') || e.message?.includes('permission'))) {
+                privateFallback = true;
+                console.log('[claudezilla] Private window failed, falling back to non-private:', e.message);
+                win = await browser.windows.create({
+                  incognito: false,
+                  focused: false,
+                  url: url || 'about:blank'
+                });
+              } else {
+                throw e;
+              }
             }
+            tabId = win.tabs?.[0]?.id;
           }
-          tabId = win.tabs?.[0]?.id;
 
           // Create tab group for visual distinction (Firefox 138+)
           let groupId = null;
@@ -1048,13 +1082,16 @@ async function handleCliCommand(message) {
             console.log('[claudezilla] Tab groups not available:', e.message);
           }
 
-          // Initialize window tracking with ownership and actual mode
+          // Initialize window tracking with ownership and actual mode.
+          // `adopted` windows belong to the USER: closeWindow must only ever
+          // remove tracked tabs there, never the window itself.
           claudezillaWindow = {
             windowId: win.id,
             tabs: [{ tabId, ownerId }],
             createdAt: Date.now(),
             groupId,
-            isPrivate: win.incognito
+            isPrivate: adoptedWindow ? false : win.incognito,
+            adopted: adoptedWindow
           };
           activeTabId = tabId;
         }
@@ -1448,6 +1485,20 @@ async function handleCliCommand(message) {
 
         const winId = claudezillaWindow.windowId;
         const tabCount = claudezillaWindow.tabs.length;
+
+        if (claudezillaWindow.adopted) {
+          // Adopted window belongs to the USER — close only the tracked
+          // agent tabs, never the window itself.
+          const trackedTabIds = claudezillaWindow.tabs.map(t => t.tabId);
+          claudezillaWindow = null;
+          activeTabId = null;
+          for (const id of trackedTabIds) {
+            try { await browser.tabs.remove(id); } catch (e) {}
+          }
+          result = { closed: true, windowId: winId, tabsClosed: tabCount, adopted: true, message: 'Adopted user window preserved; only Claudezilla tabs were closed.' };
+          break;
+        }
+
         claudezillaWindow = null;
         activeTabId = null;
         await browser.windows.remove(winId);
