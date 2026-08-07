@@ -15,7 +15,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { connect } from 'net';
 import { randomBytes } from 'crypto';
-import { readFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, existsSync, statSync, writeFileSync } from 'fs';
+import { resolve as resolvePath, extname } from 'path';
 import { getSocketPath, getAuthTokenPath } from '../host/ipc.js';
 
 // Single source of truth for the MCP server version. Reading from
@@ -372,6 +373,21 @@ const RETRY_CONFIG = {
 /**
  * Sleep for specified milliseconds
  */
+function saveScreenshotToDisk(base64Data, savePath) {
+  if (!savePath || typeof savePath !== 'string') throw new Error('savePath must be a non-empty string');
+  if (savePath.includes('\0')) throw new Error('savePath contains null byte');
+  if (savePath.includes('..')) throw new Error('savePath contains path traversal');
+
+  const absPath = resolvePath(savePath);
+  const ext = extname(absPath).toLowerCase();
+  if (ext && ext !== '.jpg' && ext !== '.jpeg' && ext !== '.png') {
+    throw new Error(`Unsupported extension "${ext}" — use .jpg or .png`);
+  }
+
+  writeFileSync(absPath, Buffer.from(base64Data, 'base64'));
+  return absPath;
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -736,6 +752,10 @@ const TOOLS = [
         annotate: {
           type: 'boolean',
           description: 'Overlay numbered badges on interactive elements (buttons, links, inputs) before capture. Returns labels map {index: {selector, text, role}} alongside screenshot. Useful for vision models to identify and reference elements.',
+        },
+        savePath: {
+          type: 'string',
+          description: 'Optional absolute file path to save the screenshot to disk (e.g. /tmp/shot.jpg). When provided, the file is written and the path is returned alongside the inline image. Supports .jpg/.jpeg and .png extensions.',
         },
       },
     },
@@ -1509,6 +1529,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       commandParams._timeout = Math.max(5000, Math.min(300000, commandParams.timeout));
       delete commandParams.timeout; // Don't forward the schema param to extension
     }
+
+    // savePath is handled in the MCP layer — don't forward to the extension
+    const savePathArg = args?.savePath;
+    delete commandParams.savePath;
+
     const OWNERSHIP_COMMANDS = [
       'firefox_create_window',
       'firefox_close_tab',
@@ -1590,6 +1615,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // If annotate was requested, append labels as text
         if (response.result.labels) {
           content.push({ type: 'text', text: JSON.stringify({ labels: response.result.labels }) });
+        }
+        // If savePath requested, write file to disk
+        if (savePathArg) {
+          const savedPath = saveScreenshotToDisk(base64Data, savePathArg);
+          content.push({ type: 'text', text: JSON.stringify({ savedPath }) });
         }
         return { content };
       }
