@@ -1676,11 +1676,13 @@ async function handleCliCommand(message) {
           }
         });
 
-        // Chain this request to the lock (preserve errors for debugging but don't break chain)
+        // Chain this request to the lock. Swallow the error on the LOCK copy so a
+        // failed screenshot does not leave screenshotLock permanently rejected —
+        // otherwise every subsequent `.then` skips its body and replays the old
+        // error ("Tab session lost") forever. The real error still reaches the
+        // caller via `await screenshotPromise` below.
         screenshotLock = screenshotPromise.catch((err) => {
           console.error('[claudezilla] Screenshot chain error:', err);
-          // Re-throw to propagate error to caller while maintaining chain
-          throw err;
         });
         result = await screenshotPromise;
         break;
