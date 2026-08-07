@@ -68,7 +68,7 @@ let activeTabId = null; // Currently active tab in the Claudezilla window
 // storage.local; on restart we ADOPT the surviving window and SWEEP any
 // duplicates left behind by earlier restarts.
 const WINDOW_STATE_KEY = 'claudezillaWindowState';
-let windowStateRestored = false;
+let windowStateRestorePromise = null;
 
 function persistWindowState() {
   const payload = claudezillaWindow
@@ -77,42 +77,49 @@ function persistWindowState() {
         tabs: claudezillaWindow.tabs,
         createdAt: claudezillaWindow.createdAt,
         groupId: claudezillaWindow.groupId ?? null,
-        isPrivate: claudezillaWindow.isPrivate
+        isPrivate: claudezillaWindow.isPrivate,
+        adopted: !!claudezillaWindow.adopted
       }
     : null;
   browser.storage.local.set({ [WINDOW_STATE_KEY]: payload }).catch(() => {});
 }
 
-async function restoreWindowState() {
-  if (windowStateRestored) return;
-  windowStateRestored = true;
-  if (claudezillaWindow) return;
-  try {
-    const stored = await browser.storage.local.get(WINDOW_STATE_KEY);
-    const saved = stored[WINDOW_STATE_KEY];
-    if (!saved) return;
-    const win = await browser.windows.get(saved.windowId, { populate: true }).catch(() => null);
-    if (!win) { persistWindowState(); return; } // window really gone — clear stale state
-    // Rebuild tab list: keep saved entries whose tabs still exist, adopt any
-    // untracked tabs in the window (created just before an unpersisted crash).
-    const liveIds = new Set(win.tabs.map(t => t.id));
-    const tabs = (saved.tabs || []).filter(t => liveIds.has(t.tabId));
-    for (const t of win.tabs) {
-      if (!tabs.some(x => x.tabId === t.id)) tabs.push({ tabId: t.id, ownerId: 'orphan:pre-restart' });
+function restoreWindowState() {
+  if (windowStateRestorePromise) return windowStateRestorePromise;
+  windowStateRestorePromise = (async () => {
+    if (claudezillaWindow) return;
+    try {
+      const stored = await browser.storage.local.get(WINDOW_STATE_KEY);
+      const saved = stored[WINDOW_STATE_KEY];
+      if (!saved) return;
+      const win = await browser.windows.get(saved.windowId, { populate: true }).catch(() => null);
+      if (!win) { persistWindowState(); return; } // window really gone — clear stale state
+      // Rebuild tab list: keep saved entries whose tabs still exist. Only a
+      // dedicated (non-adopted) Claudezilla window may absorb untracked tabs as
+      // orphans — in an ADOPTED user window every untracked tab is the USER'S.
+      const liveIds = new Set(win.tabs.map(t => t.id));
+      const tabs = (saved.tabs || []).filter(t => liveIds.has(t.tabId));
+      if (!saved.adopted) {
+        for (const t of win.tabs) {
+          if (!tabs.some(x => x.tabId === t.id)) tabs.push({ tabId: t.id, ownerId: 'orphan:pre-restart' });
+        }
+      }
+      claudezillaWindow = {
+        windowId: saved.windowId,
+        tabs,
+        createdAt: saved.createdAt || Date.now(),
+        groupId: saved.groupId ?? null,
+        isPrivate: saved.adopted ? false : win.incognito,
+        adopted: !!saved.adopted
+      };
+      activeTabId = tabs.length ? tabs[tabs.length - 1].tabId : null;
+      console.log(`[claudezilla] Adopted surviving window ${saved.windowId} (${tabs.length} tab(s)) after background restart`);
+      persistWindowState();
+    } catch (e) {
+      console.log('[claudezilla] Window-state restore failed:', e.message);
     }
-    claudezillaWindow = {
-      windowId: saved.windowId,
-      tabs,
-      createdAt: saved.createdAt || Date.now(),
-      groupId: saved.groupId ?? null,
-      isPrivate: win.incognito
-    };
-    activeTabId = tabs.length ? tabs[tabs.length - 1].tabId : null;
-    console.log(`[claudezilla] Adopted surviving window ${saved.windowId} (${tabs.length} tab(s)) after background restart`);
-    persistWindowState();
-  } catch (e) {
-    console.log('[claudezilla] Window-state restore failed:', e.message);
-  }
+  })();
+  return windowStateRestorePromise;
 }
 
 async function sweepDuplicateWindows() {
@@ -138,6 +145,97 @@ async function sweepDuplicateWindows() {
 
 // Restore-then-sweep once per background lifetime.
 restoreWindowState().then(sweepDuplicateWindows);
+
+// User tabs explicitly attached for in-place automation. These are separate
+// from the managed tab pool: attaching never creates, moves, or closes a tab.
+const ATTACHED_TABS_KEY = 'claudezillaAttachedTabs';
+const attachedTabs = new Map(); // tabId -> { ownerId, attachedAt }
+let attachedTabsRestorePromise = null;
+
+async function persistAttachedTabs() {
+  await browser.storage.local.set({ [ATTACHED_TABS_KEY]: [...attachedTabs.entries()] });
+}
+
+function dropManagedPoolAttachments() {
+  if (!claudezillaWindow) return false;
+  let changed = false;
+  for (const { tabId } of claudezillaWindow.tabs) {
+    changed = attachedTabs.delete(tabId) || changed;
+  }
+  return changed;
+}
+
+function restoreAttachedTabs() {
+  if (attachedTabsRestorePromise) return attachedTabsRestorePromise;
+  attachedTabsRestorePromise = (async () => {
+    try {
+      const stored = await browser.storage.local.get(ATTACHED_TABS_KEY);
+      for (const entry of stored[ATTACHED_TABS_KEY] || []) {
+        if (!Array.isArray(entry) || entry.length !== 2) continue;
+        const tabId = Number(entry[0]);
+        const tab = await browser.tabs.get(tabId).catch(() => null);
+        if (tab) attachedTabs.set(tabId, entry[1]);
+      }
+      await persistAttachedTabs();
+    } catch (error) {
+      console.log('[claudezilla] Attached-tab restore failed:', error.message);
+    }
+  })();
+  return attachedTabsRestorePromise;
+}
+
+function isAttachedTab(tabId) {
+  return attachedTabs.has(Number(tabId));
+}
+
+async function attachExistingTab(tabId, ownerId) {
+  const normalizedTabId = Number(tabId);
+  if (!Number.isInteger(normalizedTabId) || normalizedTabId <= 0) {
+    throw new Error('tabId must be a positive integer — use firefox_list_all_tabs to find one');
+  }
+  if (claudezillaWindow?.tabs.some((entry) => entry.tabId === normalizedTabId)) {
+    throw new Error(`Tab ${normalizedTabId} already belongs to the managed Claudezilla pool and cannot be attached as a shared user tab.`);
+  }
+  const tab = await browser.tabs.get(normalizedTabId).catch(() => null);
+  if (!tab) throw new Error(`Tab ${normalizedTabId} not found. Use firefox_list_all_tabs to refresh the list.`);
+  attachedTabs.set(normalizedTabId, { ownerId: ownerId || 'unknown', attachedAt: Date.now() });
+  await persistAttachedTabs();
+  return tab;
+}
+
+async function detachExistingTab(tabId) {
+  const normalizedTabId = Number(tabId);
+  const detached = attachedTabs.delete(normalizedTabId);
+  await persistAttachedTabs();
+  return detached;
+}
+
+async function resolveTargetTab(targetTab, windowId, agentId, operation) {
+  const normalizedTabId = Number(targetTab);
+  // A managed-pool tab always retains managed ownership, even if stale local
+  // storage also claims it was attached before this background started.
+  if (targetTab && claudezillaWindow?.tabs.some((entry) => entry.tabId === normalizedTabId)) {
+    await getSession(windowId);
+    if (agentId) verifyTabOwnership(normalizedTabId, agentId, operation);
+    return normalizedTabId;
+  }
+  if (targetTab && isAttachedTab(normalizedTabId)) {
+    const tab = await browser.tabs.get(normalizedTabId).catch(() => null);
+    if (!tab) {
+      attachedTabs.delete(normalizedTabId);
+      await persistAttachedTabs();
+      throw new Error(`TAB_UNAVAILABLE: Attached tab ${normalizedTabId} no longer exists. Use firefox_list_all_tabs to refresh the list.`);
+    }
+    return normalizedTabId;
+  }
+
+  const session = await getSession(windowId);
+  const tabId = normalizedTabId || session.tabId;
+  if (targetTab && agentId) verifyTabOwnership(tabId, agentId, operation);
+  return tabId;
+}
+
+restoreAttachedTabs();
 
 // Screenshot mutex - serialize all screenshot requests to prevent collisions
 // (captureVisibleTab only works on visible tab, so we must switch tabs sequentially)
@@ -778,6 +876,8 @@ async function handleCliCommand(message) {
   // Adopt a surviving window before any command touches claudezillaWindow
   // (no-op after the first call per background lifetime).
   await restoreWindowState();
+  await restoreAttachedTabs();
+  if (dropManagedPoolAttachments()) await persistAttachedTabs();
 
   try {
     let result;
@@ -802,7 +902,7 @@ async function handleCliCommand(message) {
         result = {
           extension: browser.runtime.getManifest().version,
           browser: navigator.userAgent,
-          features: ['devtools', 'network', 'console', 'evaluate', 'focusglow', 'tabgroups', 'security-hardened', 'orphan-cleanup', 'focus-loop', 'auto-retry', 'task-detection', 'expression-validation', 'windows-support', 'autonomous-install'],
+          features: ['devtools', 'network', 'console', 'evaluate', 'focusglow', 'tabgroups', 'security-hardened', 'orphan-cleanup', 'focus-loop', 'auto-retry', 'task-detection', 'expression-validation', 'windows-support', 'autonomous-install', 'attached-tabs'],
         };
         break;
 
@@ -814,22 +914,20 @@ async function handleCliCommand(message) {
       }
 
       case 'navigate': {
-        const { url, tabId: rawNavTabId, agentId } = params;
+        const { url, tabId: rawNavTabId, windowId, agentId } = params;
         const targetTabId = rawNavTabId ? Number(rawNavTabId) : null;
         if (!url) throw new Error('url is required');
 
         // SECURITY: Validate URL scheme (blocks javascript:, data:)
         validateUrlScheme(url);
 
-        // If tabId provided, navigate that specific Claudezilla tab (with ownership check)
+        // An explicitly attached user tab bypasses the managed-pool lookup,
+        // while managed tabs retain their ownership check.
         if (targetTabId) {
-          // Verify the tab is in our pool and agent owns it
-          if (agentId) {
-            verifyTabOwnership(targetTabId, agentId, 'navigate');
-          }
-          await browser.tabs.update(targetTabId, { url });
-          const tab = await browser.tabs.get(targetTabId);
-          result = { tabId: targetTabId, url: tab.url, title: tab.title, navigated: true };
+          const tabId = await resolveTargetTab(targetTabId, windowId, agentId, 'navigate');
+          await browser.tabs.update(tabId, { url });
+          const tab = await browser.tabs.get(tabId);
+          result = { tabId, url: tab.url, title: tab.title, navigated: true };
           break;
         }
 
@@ -881,6 +979,46 @@ async function handleCliCommand(message) {
           tabCount: claudezillaWindow.tabs.length,
           maxTabs: MAX_TABS
         };
+        break;
+      }
+
+      case 'listAllTabs': {
+        const allTabs = await browser.tabs.query({});
+        const poolTabIds = new Set((claudezillaWindow?.tabs || []).map((entry) => entry.tabId));
+        result = {
+          tabs: allTabs.map((tab) => ({
+            tabId: tab.id,
+            windowId: tab.windowId,
+            url: tab.url,
+            title: tab.title,
+            active: tab.active,
+            pinned: tab.pinned,
+            private: tab.incognito,
+            pool: poolTabIds.has(tab.id),
+            attached: isAttachedTab(tab.id)
+          })),
+          count: allTabs.length
+        };
+        break;
+      }
+
+      case 'attachTab': {
+        const { tabId, agentId } = params;
+        const tab = await attachExistingTab(tabId, agentId);
+        result = {
+          attached: true,
+          tabId: tab.id,
+          windowId: tab.windowId,
+          url: tab.url,
+          title: tab.title
+        };
+        break;
+      }
+
+      case 'detachTab': {
+        const { tabId } = params;
+        if (tabId === undefined || tabId === null) throw new Error('tabId is required');
+        result = { detached: await detachExistingTab(tabId), tabId: Number(tabId) };
         break;
       }
 
@@ -1002,32 +1140,61 @@ async function handleCliCommand(message) {
           activeTabId = tabId;
 
         } else {
-          // No window - create new window (private by default)
+          // No window tracked. Preferred mode: ADOPT the user's last-focused
+          // normal window and open the agent tab there (still group-tagged and
+          // owner-tracked), instead of spawning a separate Claudezilla window.
+          // Opt out via storage.local { adoptCurrentWindow: false }.
           isNewWindow = true;
           const usePrivate = typeof requestedPrivate === 'boolean' ? requestedPrivate : await isPrivateModeRequired();
           let win;
+          let adoptedWindow = false;
 
-          try {
-            win = await browser.windows.create({
-              incognito: usePrivate,
-              focused: false,
-              url: url || 'about:blank'
+          if (!usePrivate) {
+            try {
+              const adoptPref = await browser.storage.local.get('adoptCurrentWindow');
+              if (adoptPref.adoptCurrentWindow !== false) {
+                const lastFocused = await browser.windows.getLastFocused({ windowTypes: ['normal'] });
+                if (lastFocused && !lastFocused.incognito) {
+                  win = lastFocused;
+                  adoptedWindow = true;
+                  isNewWindow = false;
+                }
+              }
+            } catch (e) {
+              console.log('[claudezilla] Window adoption unavailable, creating window:', e.message);
+            }
+          }
+
+          if (adoptedWindow) {
+            const newTab = await browser.tabs.create({
+              windowId: win.id,
+              url: url || 'about:blank',
+              active: false
             });
-          } catch (e) {
-            // Auto-fallback: if private was requested but permission denied, retry non-private
-            if (usePrivate && (e.message?.includes('incognito') || e.message?.includes('private') || e.message?.includes('permission'))) {
-              privateFallback = true;
-              console.log('[claudezilla] Private window failed, falling back to non-private:', e.message);
+            tabId = newTab.id;
+          } else {
+            try {
               win = await browser.windows.create({
-                incognito: false,
+                incognito: usePrivate,
                 focused: false,
                 url: url || 'about:blank'
               });
-            } else {
-              throw e;
+            } catch (e) {
+              // Auto-fallback: if private was requested but permission denied, retry non-private
+              if (usePrivate && (e.message?.includes('incognito') || e.message?.includes('private') || e.message?.includes('permission'))) {
+                privateFallback = true;
+                console.log('[claudezilla] Private window failed, falling back to non-private:', e.message);
+                win = await browser.windows.create({
+                  incognito: false,
+                  focused: false,
+                  url: url || 'about:blank'
+                });
+              } else {
+                throw e;
+              }
             }
+            tabId = win.tabs?.[0]?.id;
           }
-          tabId = win.tabs?.[0]?.id;
 
           // Create tab group for visual distinction (Firefox 138+)
           let groupId = null;
@@ -1048,13 +1215,16 @@ async function handleCliCommand(message) {
             console.log('[claudezilla] Tab groups not available:', e.message);
           }
 
-          // Initialize window tracking with ownership and actual mode
+          // Initialize window tracking with ownership and actual mode.
+          // `adopted` windows belong to the USER: closeWindow must only ever
+          // remove tracked tabs there, never the window itself.
           claudezillaWindow = {
             windowId: win.id,
             tabs: [{ tabId, ownerId }],
             createdAt: Date.now(),
             groupId,
-            isPrivate: win.incognito
+            isPrivate: adoptedWindow ? false : win.incognito,
+            adopted: adoptedWindow
           };
           activeTabId = tabId;
         }
@@ -1095,6 +1265,20 @@ async function handleCliCommand(message) {
         // SECURITY: Require agentId for ownership verification
         if (!agentId) {
           throw new Error('agentId is required for tab close operations');
+        }
+
+        // Attached USER tabs may be closed by the agent that attached them
+        // (explicit user-delegated action, e.g. "close that tab for me").
+        if (isAttachedTab(closeTabId)) {
+          const att = attachedTabs.get(closeTabId);
+          if (att.ownerId !== 'unknown' && att.ownerId !== agentId) {
+            throw new Error(`OWNERSHIP: Attached tab ${closeTabId} was attached by ${att.ownerId}. You (${agentId}) cannot close it.`);
+          }
+          attachedTabs.delete(closeTabId);
+          await persistAttachedTabs();
+          await browser.tabs.remove(closeTabId);
+          result = { closed: true, tabId: closeTabId, attached: true, message: 'Attached user tab closed.' };
+          break;
         }
 
         if (!claudezillaWindow) {
@@ -1448,6 +1632,20 @@ async function handleCliCommand(message) {
 
         const winId = claudezillaWindow.windowId;
         const tabCount = claudezillaWindow.tabs.length;
+
+        if (claudezillaWindow.adopted) {
+          // Adopted window belongs to the USER — close only the tracked
+          // agent tabs, never the window itself.
+          const trackedTabIds = claudezillaWindow.tabs.map(t => t.tabId);
+          claudezillaWindow = null;
+          activeTabId = null;
+          for (const id of trackedTabIds) {
+            try { await browser.tabs.remove(id); } catch (e) {}
+          }
+          result = { closed: true, windowId: winId, tabsClosed: tabCount, adopted: true, message: 'Adopted user window preserved; only Claudezilla tabs were closed.' };
+          break;
+        }
+
         claudezillaWindow = null;
         activeTabId = null;
         await browser.windows.remove(winId);
@@ -1544,12 +1742,7 @@ async function handleCliCommand(message) {
 
       case 'getContent': {
         const { windowId, tabId: targetTab, agentId, ...contentParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab (if specific tab requested)
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'read content from');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'read content from');
         const response = await executeInTab(tabId, 'getContent', contentParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1560,12 +1753,7 @@ async function handleCliCommand(message) {
 
       case 'click': {
         const { windowId, tabId: targetTab, agentId, ...clickParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'click in');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'click in');
         const response = await executeInTab(tabId, 'click', clickParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1576,12 +1764,7 @@ async function handleCliCommand(message) {
 
       case 'type': {
         const { windowId, tabId: targetTab, agentId, ...typeParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'type in');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'type in');
         const response = await executeInTab(tabId, 'type', typeParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1623,10 +1806,9 @@ async function handleCliCommand(message) {
         } = params;
         const requestedTabId = rawRequestedTabId ? Number(rawRequestedTabId) : null; // Normalize to Number
 
-        // SECURITY: Verify agent owns the target tab before queuing screenshot
-        if (requestedTabId && agentId) {
-          verifyTabOwnership(requestedTabId, agentId, 'screenshot');
-        }
+        const resolvedRequestedTabId = requestedTabId
+          ? await resolveTargetTab(requestedTabId, windowId, agentId, 'screenshot')
+          : null;
 
         // Generate unique request ID for this screenshot to track through mutex
         const screenshotRequestId = `ss_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -1662,38 +1844,46 @@ async function handleCliCommand(message) {
           screenshotMutexHolder = { agentId, acquiredAt: Date.now(), requestId: screenshotRequestId };
 
           try {
-            const session = await getSession(windowId);
+            let session = null;
             let screenshotReadiness = null;
+            const targetTabId = resolvedRequestedTabId || activeTabId;
+            const attachedCapture = isAttachedTab(targetTabId);
 
-            // Determine which tab to capture
-            const tabIds = claudezillaWindow?.tabs.map(t => t.tabId) || [];
-            let targetTabId = requestedTabId || activeTabId;
-            if (requestedTabId && claudezillaWindow && !tabIds.includes(requestedTabId)) {
-              throw new Error(`Tab ${requestedTabId} not found in Claudezilla window. Available tabs: ${tabIds.join(', ')}`);
-            }
+            if (!attachedCapture) {
+              session = await getSession(windowId);
+              const tabIds = claudezillaWindow?.tabs.map(t => t.tabId) || [];
+              if (resolvedRequestedTabId && !tabIds.includes(resolvedRequestedTabId)) {
+                throw new Error(`Tab ${resolvedRequestedTabId} not found in Claudezilla window. Available tabs: ${tabIds.join(', ')}`);
+              }
 
-            // If specific tab requested and it's not visible, switch to it first
-            if (targetTabId && targetTabId !== activeTabId) {
-              await browser.tabs.update(targetTabId, { active: true });
-              activeTabId = targetTabId;
+              // Managed-pool screenshots still use captureVisibleTab, so the
+              // requested tab must be active in the managed window.
+              if (targetTabId && targetTabId !== activeTabId) {
+                await browser.tabs.update(targetTabId, { active: true });
+                activeTabId = targetTabId;
 
-              // Dynamic page readiness detection (replaces hardcoded 150ms)
-              if (!skipReadiness) {
+                if (!skipReadiness) {
+                  screenshotReadiness = await waitForPageReady(targetTabId, {
+                    maxWait,
+                    requireVisualIdle: waitForImages
+                  });
+                }
+
+                const [currentActive] = await browser.tabs.query({ active: true, windowId: session.windowId });
+                if (currentActive?.id !== targetTabId) {
+                  throw new Error(`Screenshot race: tab ${targetTabId} was switched away during capture`);
+                }
+              } else if (!skipReadiness) {
                 screenshotReadiness = await waitForPageReady(targetTabId, {
-                  maxWait,
+                  maxWait: Math.min(maxWait, 2000),
                   requireVisualIdle: waitForImages
                 });
               }
-
-              // Verify the tab is still active after wait (prevents race)
-              const [currentActive] = await browser.tabs.query({ active: true, windowId: session.windowId });
-              if (currentActive?.id !== targetTabId) {
-                throw new Error(`Screenshot race: tab ${targetTabId} was switched away during capture`);
-              }
             } else if (!skipReadiness) {
-              // Even without tab switch, do quick render check for current tab
+              // Firefox captureTab works on a background tab without changing
+              // the user's selected tab or focused window.
               screenshotReadiness = await waitForPageReady(targetTabId, {
-                maxWait: Math.min(maxWait, 2000), // Shorter wait for already-visible tab
+                maxWait,
                 requireVisualIdle: waitForImages
               });
             }
@@ -1714,7 +1904,9 @@ async function handleCliCommand(message) {
               if (annResp.success) annotationLabels = annResp.result.labels;
             }
 
-            const rawDataUrl = await browser.tabs.captureVisibleTab(session.windowId, captureOpts);
+            const rawDataUrl = attachedCapture
+              ? await browser.tabs.captureTab(targetTabId, captureOpts)
+              : await browser.tabs.captureVisibleTab(session.windowId, captureOpts);
 
             // Restore watermark and remove annotations after capture
             await executeInTab(targetTabId, 'showWatermark', {});
@@ -1776,12 +1968,7 @@ async function handleCliCommand(message) {
 
       case 'getConsoleLogs': {
         const { windowId, tabId: targetTab, agentId, ...consoleParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'read console from');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'read console from');
         const response = await executeInTab(tabId, 'getConsoleLogs', consoleParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1792,25 +1979,15 @@ async function handleCliCommand(message) {
 
       case 'getNetworkRequests': {
         const { windowId, tabId: targetTab, agentId, ...networkParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'read network from');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'read network from');
         result = { tabId, ...getNetworkRequests({ ...networkParams, tabId }) };
         break;
       }
 
       case 'scroll': {
         const { windowId, tabId: targetTab, agentId, ...scrollParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'scroll in');
-        }
-        const isActiveTab = tabId === activeTabId;
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'scroll in');
+        const isActiveTab = (await browser.tabs.get(tabId)).active;
         const response = await executeInTab(tabId, 'scroll', scrollParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1825,12 +2002,7 @@ async function handleCliCommand(message) {
 
       case 'waitFor': {
         const { windowId, tabId: targetTab, agentId, ...waitParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'wait in');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'wait in');
         const response = await executeInTab(tabId, 'waitFor', waitParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1841,12 +2013,7 @@ async function handleCliCommand(message) {
 
       case 'evaluate': {
         const { windowId, tabId: targetTab, agentId, ...evalParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab (evaluate is high-privilege)
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'evaluate in');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'evaluate in');
         const response = await executeInTab(tabId, 'evaluate', evalParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1857,12 +2024,7 @@ async function handleCliCommand(message) {
 
       case 'getElementInfo': {
         const { windowId, tabId: targetTab, agentId, ...elementParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'inspect element in');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'inspect element in');
         const response = await executeInTab(tabId, 'getElementInfo', elementParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1873,12 +2035,7 @@ async function handleCliCommand(message) {
 
       case 'getPageState': {
         const { windowId, tabId: targetTab, agentId } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'read page state from');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'read page state from');
         const response = await executeInTab(tabId, 'getPageState', {});
         if (!response.success) {
           throw new Error(response.error);
@@ -1889,12 +2046,7 @@ async function handleCliCommand(message) {
 
       case 'getAccessibilitySnapshot': {
         const { windowId, tabId: targetTab, agentId, ...a11yParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'read accessibility from');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'read accessibility from');
         const response = await executeInTab(tabId, 'getAccessibilitySnapshot', a11yParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1905,12 +2057,7 @@ async function handleCliCommand(message) {
 
       case 'pressKey': {
         const { windowId, tabId: targetTab, agentId, ...keyParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab
-        if (targetTab && agentId) {
-          verifyTabOwnership(tabId, agentId, 'send keys to');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'send keys to');
         const response = await executeInTab(tabId, 'pressKey', keyParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -1921,12 +2068,8 @@ async function handleCliCommand(message) {
 
       case 'handleConsent': {
         const { windowId, tabId: targetTab, agentId, ...consentParams } = params;
-        const session = await getSession(windowId);
-        const tabId = Number(targetTab) || session.tabId;
-        // SECURITY: Verify agent owns the target tab (always check when agentId present)
-        if (agentId) {
-          verifyTabOwnership(tabId, agentId, 'handle consent in');
-        }
+        const tabId = await resolveTargetTab(targetTab, windowId, agentId, 'handle consent in');
+        if (!targetTab && agentId) verifyTabOwnership(tabId, agentId, 'handle consent in');
         const response = await executeInTab(tabId, 'handleConsent', consentParams);
         if (!response.success) {
           throw new Error(response.error);
@@ -2085,6 +2228,7 @@ browser.windows.onRemoved.addListener((windowId) => {
 
 // Track when tabs are closed (keep tabs array in sync)
 browser.tabs.onRemoved.addListener((tabId, removeInfo) => {
+  if (attachedTabs.delete(tabId)) persistAttachedTabs().catch(() => {});
   if (claudezillaWindow) {
     const tabIndex = claudezillaWindow.tabs.findIndex(t => t.tabId === tabId);
     if (tabIndex > -1) {

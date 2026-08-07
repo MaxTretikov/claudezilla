@@ -769,6 +769,42 @@ const TOOLS = [
     },
   },
   {
+    name: 'firefox_list_all_tabs',
+    description: 'List every open Firefox tab across all windows, including tabs outside the managed Claudezilla pool. Returns tabId, windowId, URL, title, active/pinned/private flags, and pool/attached markers. Use firefox_attach_tab with a returned tabId to drive an existing user tab in place.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'firefox_attach_tab',
+    description: 'Attach an already-open user tab for in-place automation. This does not create, move, navigate, activate, or close the tab. After attaching, pass its tabId to the normal content, interaction, devtools, navigation, or screenshot tools. Use firefox_list_all_tabs to find tab IDs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'Existing tab ID returned by firefox_list_all_tabs',
+        },
+      },
+      required: ['tabId'],
+    },
+  },
+  {
+    name: 'firefox_detach_tab',
+    description: 'Release an attached user tab without closing, moving, navigating, or otherwise changing it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'Attached tab ID to release',
+        },
+      },
+      required: ['tabId'],
+    },
+  },
+  {
     name: 'firefox_close_tab',
     description: 'Close a specific tab by ID. OWNERSHIP ENFORCED: You can only close tabs you created. Other agents cannot close your tabs. Use firefox_get_tabs to see ownership.',
     inputSchema: {
@@ -1233,6 +1269,9 @@ const TOOL_CATEGORIES = {
   firefox_screenshot: 'core',
   firefox_get_page_state: 'core',
   firefox_get_tabs: 'core',
+  firefox_list_all_tabs: 'core',
+  firefox_attach_tab: 'core',
+  firefox_detach_tab: 'core',
   firefox_close_tab: 'core',
   firefox_get_content: 'inspection',
   firefox_get_element: 'inspection',
@@ -1304,6 +1343,9 @@ const TOOL_TO_COMMAND = {
   firefox_type: 'type',
   firefox_screenshot: 'screenshot',
   firefox_get_tabs: 'getTabs',
+  firefox_list_all_tabs: 'listAllTabs',
+  firefox_attach_tab: 'attachTab',
+  firefox_detach_tab: 'detachTab',
   firefox_close_tab: 'closeTab',
   firefox_close_window: 'closeWindow',
   firefox_resize_window: 'resizeWindow',
@@ -1536,6 +1578,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     const OWNERSHIP_COMMANDS = [
       'firefox_create_window',
+      'firefox_attach_tab',
       'firefox_close_tab',
       'firefox_close_window',
       'firefox_navigate',
