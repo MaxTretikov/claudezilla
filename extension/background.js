@@ -1143,7 +1143,8 @@ async function handleCliCommand(message) {
           // No window tracked. Preferred mode: ADOPT the user's last-focused
           // normal window and open the agent tab there (still group-tagged and
           // owner-tracked), instead of spawning a separate Claudezilla window.
-          // Opt out via storage.local { adoptCurrentWindow: false }.
+          // Toggle via the popup's "Reuse current window" setting (Window
+          // section), backed by storage.local { adoptCurrentWindow: false }.
           isNewWindow = true;
           const usePrivate = typeof requestedPrivate === 'boolean' ? requestedPrivate : await isPrivateModeRequired();
           let win;

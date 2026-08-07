@@ -12,6 +12,7 @@ const showWatermarkCheckbox = document.getElementById('showWatermark');
 const showFocusglowCheckbox = document.getElementById('showFocusglow');
 const compressImagesCheckbox = document.getElementById('compressImages');
 const allowEvaluateCheckbox = document.getElementById('allowEvaluate');
+const adoptCurrentWindowCheckbox = document.getElementById('adoptCurrentWindow');
 
 // Loop elements
 const loopSection = document.getElementById('loopSection');
@@ -69,6 +70,28 @@ async function saveSettings() {
     await browser.storage.local.set({ claudezilla: settings });
   } catch (e) {
     console.log('[claudezilla] Could not save settings:', e.message);
+  }
+}
+
+/**
+ * Load/save window-adoption preference. Stored as a top-level storage.local
+ * key (not nested under `claudezilla`) because background.js reads it directly
+ * via browser.storage.local.get('adoptCurrentWindow').
+ */
+async function loadWindowSettings() {
+  try {
+    const stored = await browser.storage.local.get('adoptCurrentWindow');
+    adoptCurrentWindowCheckbox.checked = stored.adoptCurrentWindow !== false;
+  } catch (e) {
+    console.log('[claudezilla] Could not load window settings:', e.message);
+  }
+}
+
+async function saveWindowSettings() {
+  try {
+    await browser.storage.local.set({ adoptCurrentWindow: adoptCurrentWindowCheckbox.checked });
+  } catch (e) {
+    console.log('[claudezilla] Could not save window settings:', e.message);
   }
 }
 
@@ -282,6 +305,9 @@ async function init() {
   // Load settings
   await loadSettings();
 
+  // Load window-adoption setting
+  await loadWindowSettings();
+
   // Load auto-loop settings (v0.5.0)
   await loadAutoLoopSettings();
 
@@ -290,6 +316,7 @@ async function init() {
   showFocusglowCheckbox.addEventListener('change', saveSettings);
   compressImagesCheckbox.addEventListener('change', saveSettings);
   allowEvaluateCheckbox.addEventListener('change', saveSettings);
+  adoptCurrentWindowCheckbox.addEventListener('change', saveWindowSettings);
 
   // Add auto-loop setting change listeners (v0.5.0)
   enableAutoDetectCheckbox.addEventListener('change', saveAutoLoopSettings);
