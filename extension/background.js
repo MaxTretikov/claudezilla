@@ -60,6 +60,85 @@ const MAX_TABS = 12;
 let claudezillaWindow = null; // { windowId, tabs: [{tabId, ownerId}, ...], createdAt, groupId }
 let activeTabId = null; // Currently active tab in the Claudezilla window
 
+// --- Window-state persistence -----------------------------------------------
+// claudezillaWindow used to live only in background-script memory. Every
+// background restart (browser restart, extension update, event-page unload)
+// wiped the tracker while the real window survived, so the next createWindow
+// spawned a sibling — windows accumulated. State now mirrors to
+// storage.local; on restart we ADOPT the surviving window and SWEEP any
+// duplicates left behind by earlier restarts.
+const WINDOW_STATE_KEY = 'claudezillaWindowState';
+let windowStateRestored = false;
+
+function persistWindowState() {
+  const payload = claudezillaWindow
+    ? {
+        windowId: claudezillaWindow.windowId,
+        tabs: claudezillaWindow.tabs,
+        createdAt: claudezillaWindow.createdAt,
+        groupId: claudezillaWindow.groupId ?? null,
+        isPrivate: claudezillaWindow.isPrivate
+      }
+    : null;
+  browser.storage.local.set({ [WINDOW_STATE_KEY]: payload }).catch(() => {});
+}
+
+async function restoreWindowState() {
+  if (windowStateRestored) return;
+  windowStateRestored = true;
+  if (claudezillaWindow) return;
+  try {
+    const stored = await browser.storage.local.get(WINDOW_STATE_KEY);
+    const saved = stored[WINDOW_STATE_KEY];
+    if (!saved) return;
+    const win = await browser.windows.get(saved.windowId, { populate: true }).catch(() => null);
+    if (!win) { persistWindowState(); return; } // window really gone — clear stale state
+    // Rebuild tab list: keep saved entries whose tabs still exist, adopt any
+    // untracked tabs in the window (created just before an unpersisted crash).
+    const liveIds = new Set(win.tabs.map(t => t.id));
+    const tabs = (saved.tabs || []).filter(t => liveIds.has(t.tabId));
+    for (const t of win.tabs) {
+      if (!tabs.some(x => x.tabId === t.id)) tabs.push({ tabId: t.id, ownerId: 'orphan:pre-restart' });
+    }
+    claudezillaWindow = {
+      windowId: saved.windowId,
+      tabs,
+      createdAt: saved.createdAt || Date.now(),
+      groupId: saved.groupId ?? null,
+      isPrivate: win.incognito
+    };
+    activeTabId = tabs.length ? tabs[tabs.length - 1].tabId : null;
+    console.log(`[claudezilla] Adopted surviving window ${saved.windowId} (${tabs.length} tab(s)) after background restart`);
+    persistWindowState();
+  } catch (e) {
+    console.log('[claudezilla] Window-state restore failed:', e.message);
+  }
+}
+
+async function sweepDuplicateWindows() {
+  // Close leftover Claudezilla windows from earlier background restarts.
+  // Identified by their 'Claudezilla' tab group; a window is only closed when
+  // EVERY tab in it belongs to that group (never touches user windows).
+  try {
+    if (!browser.tabGroups?.query) return;
+    const groups = await browser.tabGroups.query({ title: 'Claudezilla' });
+    for (const g of groups) {
+      if (claudezillaWindow && g.windowId === claudezillaWindow.windowId) continue;
+      const win = await browser.windows.get(g.windowId, { populate: true }).catch(() => null);
+      if (!win) continue;
+      if (win.tabs.every(t => t.groupId === g.id)) {
+        await browser.windows.remove(g.windowId).catch(() => {});
+        console.log(`[claudezilla] Swept duplicate Claudezilla window ${g.windowId}`);
+      }
+    }
+  } catch (e) {
+    console.log('[claudezilla] Duplicate-window sweep failed:', e.message);
+  }
+}
+
+// Restore-then-sweep once per background lifetime.
+restoreWindowState().then(sweepDuplicateWindows);
+
 // Screenshot mutex - serialize all screenshot requests to prevent collisions
 // (captureVisibleTab only works on visible tab, so we must switch tabs sequentially)
 let screenshotLock = Promise.resolve();
@@ -695,6 +774,10 @@ async function handleCliCommand(message) {
   const { id, command, params = {} } = message;
 
   console.log('[claudezilla] CLI command:', command, params);
+
+  // Adopt a surviving window before any command touches claudezillaWindow
+  // (no-op after the first call per background lifetime).
+  await restoreWindowState();
 
   try {
     let result;
@@ -1866,9 +1949,15 @@ async function handleCliCommand(message) {
         throw new Error(`Unknown command: ${command}`);
     }
 
+    // Persist window/tab state after every successful command — cheap, and
+    // guarantees the next background restart can adopt instead of duplicate.
+    persistWindowState();
+
     // Send result back to host
     port.postMessage({ id, success: true, result });
   } catch (error) {
+    // Evictions/closes may have mutated state before the throw — persist anyway.
+    persistWindowState();
     console.error('[claudezilla] CLI command error:', error);
     // Structured errors (like MUTEX_BUSY) pass through with full details
     if (error && error.code) {
@@ -1990,6 +2079,7 @@ browser.windows.onRemoved.addListener((windowId) => {
     console.log('[claudezilla] Window closed');
     claudezillaWindow = null;
     activeTabId = null;
+    persistWindowState();
   }
 });
 
@@ -2005,6 +2095,7 @@ browser.tabs.onRemoved.addListener((tabId, removeInfo) => {
       const lastTab = claudezillaWindow.tabs[claudezillaWindow.tabs.length - 1];
       activeTabId = lastTab?.tabId || null;
     }
+    persistWindowState();
   }
 });
 
