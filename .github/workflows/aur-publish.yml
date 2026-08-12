@@ -16,13 +16,27 @@ jobs:
     name: Build and deploy AUR package
     runs-on: ubuntu-latest
     steps:
+      - name: Check for AUR credentials
+        id: creds
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AUR_SSH_PRIVATE_KEY secret not set — skipping AUR deploy."
+          fi
+
       - name: Checkout
+        if: steps.creds.outputs.have == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Generate PKGBUILD from template
         id: pkg
+        if: steps.creds.outputs.have == 'true'
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
           PKGVER="${TAG#v}"
@@ -33,6 +47,7 @@ jobs:
           echo "pkgver=${PKGVER}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to AUR
+        if: steps.creds.outputs.have == 'true'
         uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
         with:
           pkgname: claudezilla

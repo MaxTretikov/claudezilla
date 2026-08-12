@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Claudezilla per-user setup (Arch/AUR package companion).
 #
@@ -30,7 +30,7 @@ mkdir -p "$CLAUDE_DIR"
 
 echo "Configuring Claude Code..."
 
-if command -v jq &> /dev/null; then
+if command -v jq >/dev/null 2>&1; then
     if [ -f "$SETTINGS_FILE" ]; then
         jq '.permissions.allow = ((.permissions.allow // []) + ["mcp__claudezilla__*"] | unique)' \
             "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
@@ -85,7 +85,7 @@ fi
 echo ""
 echo "Setting up Firefox headless profile..."
 
-if ! command -v firefox &> /dev/null; then
+if ! command -v firefox >/dev/null 2>&1; then
     echo "  [WARN] firefox not found — skipping profile setup."
     echo "         Install it (pacman -S firefox) and re-run: claudezilla-setup"
     echo "         Or install the signed extension in your own Firefox:"

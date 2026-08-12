@@ -49,36 +49,15 @@ EOF
 exec /usr/bin/node /usr/lib/claudezilla/mcp/server.js "$@"
 EOF
     chmod 755 "$pkgdir/usr/bin/claudezilla-host" "$pkgdir/usr/bin/claudezilla-mcp"
-    install -Dm755 packaging/aur/claudezilla-setup "$pkgdir/usr/bin/claudezilla-setup"
+    install -Dm755 packaging/common/claudezilla-setup "$pkgdir/usr/bin/claudezilla-setup"
 
     # System-wide Firefox native messaging manifest
-    install -Dm644 /dev/stdin \
-        "$pkgdir/usr/lib/mozilla/native-messaging-hosts/claudezilla.json" <<'EOF'
-{
-  "name": "claudezilla",
-  "description": "Claude Code Firefox browser automation bridge",
-  "path": "/usr/bin/claudezilla-host",
-  "type": "stdio",
-  "allowed_extensions": ["claudezilla@boot.industries"]
-}
-EOF
+    install -Dm644 packaging/common/claudezilla.json \
+        "$pkgdir/usr/lib/mozilla/native-messaging-hosts/claudezilla.json"
 
     # systemd user service for the headless automation browser
-    install -Dm644 /dev/stdin \
-        "$pkgdir/usr/lib/systemd/user/claudezilla-browser.service" <<'EOF'
-[Unit]
-Description=Claudezilla Firefox Headless Browser
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/firefox --headless --no-remote --profile %h/.mozilla/firefox/claudezilla-headless
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=default.target
-EOF
+    install -Dm644 packaging/common/claudezilla-browser.service \
+        "$pkgdir/usr/lib/systemd/user/claudezilla-browser.service"
 
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
