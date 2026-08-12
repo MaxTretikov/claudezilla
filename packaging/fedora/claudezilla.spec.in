@@ -86,5 +86,5 @@ cat << 'EOF'
 EOF
 
 %changelog
-* @DATE@ Max Tretikov <ai@tretikov.com> - @VERSION@-1
+* @DATE@ Chris Lyons <support@boot.industries> - @VERSION@-1
 - Automated release (https://github.com/@REPO@)

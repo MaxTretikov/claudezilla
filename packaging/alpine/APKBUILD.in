@@ -1,4 +1,4 @@
-# Maintainer: Max Tretikov <ai@tretikov.com>
+# Maintainer: Chris Lyons <support@boot.industries>
 # Template: @PKGVER@ is substituted by .github/workflows/alpine-publish.yml.
 # The workflow builds from a tarball of the checked-out tree, so source= is a
 # local file staged next to this APKBUILD; `abuild checksum` fills sha512sums.

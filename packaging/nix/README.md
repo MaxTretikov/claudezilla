@@ -7,17 +7,17 @@ anywhere. `nix.yml` CI validates that the package builds on every push.
 
 ```sh
 # Imperative
-nix profile install github:MaxTretikov/claudezilla
+nix profile install github:boot-industries/claudezilla
 
 # Try it out
-nix run github:MaxTretikov/claudezilla   # runs claudezilla-mcp
+nix run github:boot-industries/claudezilla   # runs claudezilla-mcp
 ```
 
 ## NixOS configuration
 
 ```nix
 {
-  inputs.claudezilla.url = "github:MaxTretikov/claudezilla";
+  inputs.claudezilla.url = "github:boot-industries/claudezilla";
 
   # in your system config:
   environment.systemPackages = [ inputs.claudezilla.packages.${pkgs.system}.default ];

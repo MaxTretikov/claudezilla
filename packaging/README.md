@@ -14,7 +14,7 @@ git tag v0.6.9 && git push origin v0.6.9
 | Arch (AUR) | `aur-publish.yml` | `AUR_USERNAME`, `AUR_EMAIL`, `AUR_SSH_PRIVATE_KEY` | `yay -S claudezilla` |
 | Alpine (Pages apk repo) | `alpine-publish.yml` | `ABUILD_PRIVKEY` | see [alpine/README.md](alpine/README.md) |
 | Fedora/EPEL (COPR) | `copr-publish.yml` | `COPR_API_CONFIG` | `dnf copr enable <user>/claudezilla && dnf install claudezilla` |
-| NixOS / Nix | `nix.yml` (validation only) | none — the flake in this repo *is* the channel | `nix profile install github:MaxTretikov/claudezilla` |
+| NixOS / Nix | `nix.yml` (validation only) | none — the flake in this repo *is* the channel | `nix profile install github:boot-industries/claudezilla` |
 
 Non-tag pushes to `main` run build-only validation for Alpine, the SRPM, and
 the Nix flake (no credentials needed), so packaging breakage surfaces before a

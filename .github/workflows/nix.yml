@@ -1,7 +1,7 @@
 name: Nix package
 
 # The flake itself is the distribution channel
-# (nix profile install github:MaxTretikov/claudezilla) — this workflow
+# (nix profile install github:boot-industries/claudezilla) — this workflow
 # validates that it builds, and commits flake.lock if it is missing.
 
 on:

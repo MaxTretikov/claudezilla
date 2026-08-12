@@ -1,4 +1,4 @@
-# Maintainer: Max Tretikov <ai@tretikov.com>
+# Maintainer: Chris Lyons <support@boot.industries>
 # This file is a template: @PKGVER@ and @REPO@ are substituted by
 # .github/workflows/aur-publish.yml before deployment to the AUR.
 pkgname=claudezilla

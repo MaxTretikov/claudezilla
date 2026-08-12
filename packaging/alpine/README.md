@@ -7,8 +7,8 @@ Alpine has no low-friction path into aports, so releases are published as a
 
 ```sh
 wget -O /etc/apk/keys/claudezilla-apk.rsa.pub \
-    https://maxtretikov.github.io/claudezilla/alpine/claudezilla-apk.rsa.pub
-echo "https://maxtretikov.github.io/claudezilla/alpine" >> /etc/apk/repositories
+    https://boot-industries.github.io/claudezilla/alpine/claudezilla-apk.rsa.pub
+echo "https://boot-industries.github.io/claudezilla/alpine" >> /etc/apk/repositories
 apk update
 apk add claudezilla
 claudezilla-setup
@@ -28,8 +28,10 @@ apk is indexed (`apk index --rewrite-arch`) into each arch directory, signed
 with `abuild-sign`, merged with the previously published packages from
 `gh-pages`, and deployed back to Pages.
 
-- Signing key: RSA key in the `ABUILD_PRIVKEY` repo secret; the public half
-  is committed at `claudezilla-apk.rsa.pub` and served from the repo root.
+- Signing key: RSA key in the `ABUILD_PRIVKEY` repo secret (generate with
+  `openssl genrsa -out claudezilla-apk.rsa 4096`). The public half is derived
+  from it during the build and published at `alpine/claudezilla-apk.rsa.pub`
+  automatically — clients fetch it from there (see above).
 - Without the secret, CI still does a validation build with a throwaway key;
   it just skips the Pages deploy.
 - Pushes to `main` validate the build; only `v*` tags (or a manual dispatch

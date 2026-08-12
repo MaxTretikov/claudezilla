@@ -31,7 +31,7 @@ cp "/root/.abuild/$KEYNAME.pub" /etc/apk/keys/
 BUILD=/tmp/claudezilla-build
 mkdir -p "$BUILD"
 sed -e "s|@PKGVER@|$PKGVER|g" \
-    -e "s|@REPO@|${GITHUB_REPOSITORY:-MaxTretikov/claudezilla}|g" \
+    -e "s|@REPO@|${GITHUB_REPOSITORY:-boot-industries/claudezilla}|g" \
     /work/packaging/alpine/APKBUILD.in > "$BUILD/APKBUILD"
 tar -C /work --exclude-vcs --exclude='./dist' \
     --transform "s,^\.,claudezilla-$PKGVER," \

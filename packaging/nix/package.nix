@@ -67,7 +67,7 @@ stdenv.mkDerivation {
 
   meta = {
     description = "Firefox browser automation for Claude Code — MCP server and native messaging host";
-    homepage = "https://github.com/MaxTretikov/claudezilla";
+    homepage = "https://github.com/boot-industries/claudezilla";
     license = lib.licenses.mit;
     mainProgram = "claudezilla-mcp";
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
