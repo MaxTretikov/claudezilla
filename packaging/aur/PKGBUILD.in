@@ -42,10 +42,24 @@ package() {
     install -d "$pkgdir/usr/bin"
     cat > "$pkgdir/usr/bin/claudezilla-host" <<'EOF'
 #!/bin/sh
+# Prefer Bun when installed; nodejs remains the packaged dependency.
+if [ -n "$CLZ_RUNTIME" ] && [ -x "$CLZ_RUNTIME" ]; then
+    exec "$CLZ_RUNTIME" /usr/lib/claudezilla/host/index.js "$@"
+fi
+if command -v bun >/dev/null 2>&1; then
+    exec bun /usr/lib/claudezilla/host/index.js "$@"
+fi
 exec /usr/bin/node /usr/lib/claudezilla/host/index.js "$@"
 EOF
     cat > "$pkgdir/usr/bin/claudezilla-mcp" <<'EOF'
 #!/bin/sh
+# Prefer Bun when installed; nodejs remains the packaged dependency.
+if [ -n "$CLZ_RUNTIME" ] && [ -x "$CLZ_RUNTIME" ]; then
+    exec "$CLZ_RUNTIME" /usr/lib/claudezilla/mcp/server.js "$@"
+fi
+if command -v bun >/dev/null 2>&1; then
+    exec bun /usr/lib/claudezilla/mcp/server.js "$@"
+fi
 exec /usr/bin/node /usr/lib/claudezilla/mcp/server.js "$@"
 EOF
     chmod 755 "$pkgdir/usr/bin/claudezilla-host" "$pkgdir/usr/bin/claudezilla-mcp"

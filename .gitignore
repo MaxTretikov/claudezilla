@@ -29,6 +29,7 @@ claudezilla-debug.log
 install/claudezilla.json
 host/host.bat
 host/run.sh
+mcp/run.sh
 
 # Runtime files
 /tmp/claudezilla.sock
@@ -36,6 +37,8 @@ host/run.sh
 # Lock files (keep root package-lock if added)
 # mcp/package-lock.json is committed: the Nix build derives dependency hashes from it
 host/package-lock.json
+# bun.lock is not committed: package-lock.json stays canonical for the Nix build
+mcp/bun.lock
 
 # Private documentation (PREFIX docs for local use only)
 docs/clz/
