@@ -12,8 +12,14 @@ Firefox extension providing browser automation for Claude Code CLI. A Google-fre
 ## Architecture
 
 ```
-Firefox Extension <-> Native Messaging Host (Node.js) <-> MCP Server <-> Claude Code
+Firefox Extension <-> Native Messaging Host (Bun or Node.js) <-> MCP Server <-> Claude Code
 ```
+
+**Runtime:** Bun when installed, otherwise Node.js 18+. The installers
+(`install/install-*.sh`, shared helpers in `install/lib/common.sh`) generate
+`host/run.sh` and `mcp/run.sh` wrappers that resolve both the checkout
+directory and the runtime at launch, so installing or removing Bun later needs
+no re-install. Set `CLZ_RUNTIME=/path/to/runtime` to override the choice.
 
 ```
 claudezilla/
