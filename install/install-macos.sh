@@ -29,17 +29,18 @@ fi
 chmod 755 "$HOST_PATH"
 echo "Set host script permissions to 755: $HOST_PATH"
 
-# Resolve absolute node path (GUI apps like Firefox don't inherit shell PATH)
-NODE_PATH="$(clz_require_node)"
-echo "Found Node.js at: $NODE_PATH"
+# Resolve an absolute runtime path, preferring Bun (GUI apps like Firefox
+# don't inherit shell PATH)
+RUNTIME_PATH="$(clz_require_runtime)"
+echo "Found runtime: $RUNTIME_PATH"
 
 # Create the wrappers Firefox and Claude Code execute
 WRAPPER_PATH="$PROJECT_DIR/host/run.sh"
-clz_write_wrapper "$WRAPPER_PATH" "index.js" "$NODE_PATH"
+clz_write_wrapper "$WRAPPER_PATH" "index.js" "$RUNTIME_PATH"
 echo "Created host wrapper: $WRAPPER_PATH"
 
 MCP_WRAPPER_PATH="$PROJECT_DIR/mcp/run.sh"
-clz_write_wrapper "$MCP_WRAPPER_PATH" "server.js" "$NODE_PATH"
+clz_write_wrapper "$MCP_WRAPPER_PATH" "server.js" "$RUNTIME_PATH"
 echo "Created MCP wrapper: $MCP_WRAPPER_PATH"
 
 # Install MCP server dependencies

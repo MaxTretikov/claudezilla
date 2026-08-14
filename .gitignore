@@ -36,6 +36,7 @@ mcp/run.sh
 
 # Lock files (keep root package-lock if added)
 mcp/package-lock.json
+mcp/bun.lock
 host/package-lock.json
 
 # Private documentation (PREFIX docs for local use only)
