@@ -29,6 +29,7 @@ claudezilla-debug.log
 install/claudezilla.json
 host/host.bat
 host/run.sh
+mcp/run.sh
 
 # Runtime files
 /tmp/claudezilla.sock

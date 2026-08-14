@@ -33,10 +33,14 @@ echo "Set host script permissions to 755: $HOST_PATH"
 NODE_PATH="$(clz_require_node)"
 echo "Found Node.js at: $NODE_PATH"
 
-# Create wrapper script that Firefox will execute
+# Create the wrappers Firefox and Claude Code execute
 WRAPPER_PATH="$PROJECT_DIR/host/run.sh"
-clz_write_wrapper "$WRAPPER_PATH" "$HOST_PATH" "$NODE_PATH"
+clz_write_wrapper "$WRAPPER_PATH" "index.js" "$NODE_PATH"
 echo "Created host wrapper: $WRAPPER_PATH"
+
+MCP_WRAPPER_PATH="$PROJECT_DIR/mcp/run.sh"
+clz_write_wrapper "$MCP_WRAPPER_PATH" "server.js" "$NODE_PATH"
+echo "Created MCP wrapper: $MCP_WRAPPER_PATH"
 
 # Install MCP server dependencies
 MCP_DIR="$PROJECT_DIR/mcp"
@@ -101,7 +105,7 @@ fi
 
 # Update mcp.json to register Claudezilla MCP server
 if command -v jq &> /dev/null; then
-    MCP_SERVER_CONFIG="{\"command\":\"node\",\"args\":[\"$PROJECT_DIR/mcp/server.js\"]}"
+    MCP_SERVER_CONFIG="{\"command\":\"$MCP_WRAPPER_PATH\",\"args\":[]}"
     if [ -f "$MCP_FILE" ]; then
         # Merge with existing config
         jq --argjson cfg "$MCP_SERVER_CONFIG" '.mcpServers.claudezilla = $cfg' "$MCP_FILE" > "$MCP_FILE.tmp" && mv "$MCP_FILE.tmp" "$MCP_FILE"
@@ -116,8 +120,8 @@ else
 {
   "mcpServers": {
     "claudezilla": {
-      "command": "node",
-      "args": ["$PROJECT_DIR/mcp/server.js"]
+      "command": "$MCP_WRAPPER_PATH",
+      "args": []
     }
   }
 }
