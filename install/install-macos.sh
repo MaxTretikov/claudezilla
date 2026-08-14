@@ -53,6 +53,16 @@ fi
 # Create native manifest with correct path
 clz_write_manifest "$NATIVE_HOSTS_DIR" "$WRAPPER_PATH"
 echo "Created native manifest with permissions 644: $NATIVE_HOSTS_DIR/claudezilla.json"
+
+# Firefox forks read native messaging hosts from their own data directory, not
+# Mozilla's, so install the manifest for any that are present.
+APP_SUPPORT="$HOME/Library/Application Support"
+for fork in Zen LibreWolf Waterfox; do
+    if [ -d "$APP_SUPPORT/$fork" ]; then
+        clz_write_manifest "$APP_SUPPORT/$fork/NativeMessagingHosts" "$WRAPPER_PATH"
+        echo "Created native manifest for $fork: $APP_SUPPORT/$fork/NativeMessagingHosts/claudezilla.json"
+    fi
+done
 echo ""
 echo "Installation complete!"
 echo ""

@@ -54,6 +54,14 @@ echo "Created MCP wrapper: $MCP_WRAPPER_PATH"
 clz_write_manifest "$NATIVE_HOSTS_DIR" "$WRAPPER_PATH"
 echo "Native manifest: $NATIVE_HOSTS_DIR/claudezilla.json"
 
+# Firefox forks read native messaging hosts from their own data directory.
+for fork_dir in "$HOME/.zen" "$HOME/.librewolf" "$HOME/.waterfox"; do
+    if [ -d "$fork_dir" ]; then
+        clz_write_manifest "$fork_dir/native-messaging-hosts" "$WRAPPER_PATH"
+        echo "Native manifest: $fork_dir/native-messaging-hosts/claudezilla.json"
+    fi
+done
+
 # ---------------------------------------------------------------------------
 # 3. MCP dependencies
 # ---------------------------------------------------------------------------
