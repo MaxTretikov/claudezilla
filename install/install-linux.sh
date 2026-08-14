@@ -14,6 +14,9 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 HOST_PATH="$PROJECT_DIR/host/index.js"
 NATIVE_HOSTS_DIR="$HOME/.mozilla/native-messaging-hosts"
 
+# shellcheck source=lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
 echo "Claudezilla Installer (Linux)"
 echo "=============================="
 echo ""
@@ -35,36 +38,16 @@ chmod 755 "$HOST_PATH"
 echo "Set host permissions to 755: $HOST_PATH"
 
 # Resolve absolute node path (GUI-launched Firefox may not have full PATH)
-NODE_PATH="$(command -v node 2>/dev/null)"
-if [ -z "$NODE_PATH" ]; then
-    echo "Error: node not found in PATH. Please install Node.js first."
-    exit 1
-fi
+NODE_PATH="$(clz_require_node)"
 echo "Found Node.js at: $NODE_PATH"
 
 # Create wrapper script with absolute node path
 WRAPPER_PATH="$PROJECT_DIR/host/run.sh"
-cat > "$WRAPPER_PATH" << WRAPPER_EOF
-#!/bin/bash
-exec "$NODE_PATH" "$HOST_PATH" "\$@"
-WRAPPER_EOF
-chmod 755 "$WRAPPER_PATH"
+clz_write_wrapper "$WRAPPER_PATH" "$HOST_PATH" "$NODE_PATH"
 echo "Created host wrapper: $WRAPPER_PATH"
 
-mkdir -p "$NATIVE_HOSTS_DIR"
-
-MANIFEST_PATH="$NATIVE_HOSTS_DIR/claudezilla.json"
-cat > "$MANIFEST_PATH" << EOF
-{
-  "name": "claudezilla",
-  "description": "Claude Code Firefox browser automation bridge",
-  "path": "$WRAPPER_PATH",
-  "type": "stdio",
-  "allowed_extensions": ["claudezilla@boot.industries"]
-}
-EOF
-chmod 644 "$MANIFEST_PATH"
-echo "Native manifest: $MANIFEST_PATH"
+clz_write_manifest "$NATIVE_HOSTS_DIR" "$WRAPPER_PATH"
+echo "Native manifest: $NATIVE_HOSTS_DIR/claudezilla.json"
 
 # ---------------------------------------------------------------------------
 # 3. MCP dependencies
@@ -72,10 +55,7 @@ echo "Native manifest: $MANIFEST_PATH"
 
 MCP_DIR="$PROJECT_DIR/mcp"
 if [ -f "$MCP_DIR/package.json" ]; then
-    command -v npm >/dev/null 2>&1 || { echo "Error: npm not found. Please install Node.js and npm first."; exit 1; }
-    echo "Installing MCP dependencies..."
-    cd "$MCP_DIR" && npm install --quiet --ignore-scripts
-    cd "$PROJECT_DIR"
+    clz_install_mcp_deps "$MCP_DIR"
     echo "MCP dependencies installed."
 fi
 
